@@ -1,0 +1,119 @@
+\section{Technische und fachliche Grundlagen}
+In diesem Kapitel soll es um die technischen und fachlichen Grundlagen gehen. Mit Hilfe dieser Grundlagen soll es möglich sein die Problemstellung und deren Lösung besser zu verstehen und einordnen zu können.
+So ist es wichtig die Grundlegende Architektur der Softwareumgebung der \ac{sbb} zu verstehen. Dazu zählen auch ein kleiner Abriss über die verschiedenen Services und Drittanbieter, die für das Verständnis eine wichtige Rolle tragen.
+
+Die verwendeten Konzepte sollen ebenfalls erwähnt werden.
+
+% --------------------------
+% Architektur: Schichten, Service, Drittanbieter
+% --------------------------
+\subsection{Grundlegende Architektur}
+
+Da die Schweizer Bundesbahnen möglichst alle Menschen in der Schweiz erreichen soll, gibt es viele Wege (Kanäle) um an ein gültiges Zugticket zu kommen. So gibt es die Möglichkeit sein Ticket über den Webshop, die mobile-App, einen Automaten oder aber an einem Schalter zu kaufen. Hinzu kommen Anfragen von anderen Anbietern, wie zum Beispiel beider Buchung eines Tickets von Berlin nach Bern. All diese verschiedenen Anfragen müssen von dem System der \ac{sbb} korrekt und möglichst schnell verarbeitet werden.
+
+\subsubsection{Architektur}
+
+Das zentrale System, welches alle möglichen Anfragen verarbeitetet nennt sich im Kontext der \ac{sbb} \ac{zvs}. Das \ac{zvs} wird von allen Kanälen angesprochen und leitet dann die entsprechenden Anfragen an die dafür vorgesehenden Services weiter. Neben den Kanälen gibt es auch noch idempotente Service-Schnittstellen nach außen für die das System als Drittanbieter fungiert. Über ein Adapter Gateway können dann aus dem \ac{zvs} anfragen nach außen an Drittanbieter wie zum Beispiel Railkit (für internationale Reisen) oder NOVA (für nationale Reisen) gelangen.
+
+Für den Fall von \ac{zvs}-Anwendung übergreifenden Transaktioinen werden diese mithilfe von Orchestrierungskomponenten realisiert. Diese verteilen die Anfragen auf die entsprechenden Services. Innerhalb des zentralen Vertrieb Systems gibt ea auch eine zentrale Sammlung aller Logs (Kommlog). In diesem Tool lassen sich alle API-Aufrufe nachvollziehen die zwischen den Services ausgetauscht wurden, aber auch welche nach außen gehen.
+% TODO Bild und erklärung der Architektur der SBB (Confluence)
+
+\subsubsection{Microservices}
+
+Um alle Anfragen abarbeiten zu können setzt die Schweizer Bundesbahn auf eine Micro-Service-Architektur. Microservices bringen den Vorteil mit sich, dass alle Services unabhängig voneinander von verschieden Teams entwickelt werden können. Dabei kann jedes Team z.B. seine eigene Datenbanktechnologie verwenden ohne andere damit zu beeinflussen. % Richards Kap 18. Style Specifics -> Data isolation
+
+Eine Microservice Umgebung zeichnet ebenso aus, dass jeder Service deutlich kleiner ist, als in anderen Verteilten Systemen. Hinzu kommt dass jeder Service trotzdem eigenständig lauffähig ist und in seiner eigenen Umgebung läuft. Somit können Resourcenengpässe und Isolationsprobleme behoben oder zumindest minimiert werden. Hingegen ist das gesamte System weniger performant, weil ein Netzwerkaufruf mit einer Sicherheitsprüfung länger dauert als ein Methodenaufruf. % Richards Kap. 18. Topology
+
+Mircoservices gelten durch Technologien, wie zum Beispiel Kubernetes als "cloud-native" und können sowohl als Container als auch als Serverless-Funktion betrieben werden. % Richards Kap 18. Cloud-Aspekt
+Dabei sollte man trotzdem immer bei der Architektur darauf achten, dass die Services nicht zu klein werden. Dies führt zu einer hohen Menge an Datenaustausch und zu viel Kommunikation zwischen den Services, was auf die Perfomance drückt und somit vermieden werden sollte. % Richards Kap 18 Common Risks
+
+Im Falle der \ac{sbb} existiert so ein Microservice eben auch für Internationle Reisen, die über einen Kanal gebucht werden. Der Service "reise-ip" beinhaltet dabei auch die gesamte \ac{ip}-Coupon-Validierung, die in dieser Arbeit optimiert weden soll.
+
+Durch den identischen Aufruf der internationalen Reisen für alle Kanäle, ist die Coupon-Validierung somit einfacher, da dies in diesem Service Zentral für alle Kanäle entwickelt werden kann. Das spart an Komplexität, weil keine Abhängigkeiten zu anderen Services bestehen.
+
+
+% --------------------------------------------
+% Caching: Definition und Einordnung
+% --------------------------------------------
+\subsection{Caching}
+
+Mithilfe von Caching ist es möglich eine Menge an temporären Daten abzuspeichern um diese Daten in einer zukünfigen Anfrage schneller Bereit stellen zu können. Somit können in einem redundante Aufrufe gecached werden, wodurch ein potenzieller zukünftiger Aufruf direkt aus dem Cache geladen werden kann. Somit können externe Anfragen und dadurch auch Zeit für eine Antwort des Systems gespart werden. % AWS Caching
+
+Der Vermeidung von zugriffen auf ein langsameres Systems steht, aber eine geringere Kapazität gegenüber. Aus diesem Grund sollten nur die notwendigen Daten gespeichert werden. Alle nicht benötigten Daten rauben den Speicher für andere Nachrichten im Cache. Das führt dazu, dass Eintrage automatisch nach einer gewissen Zeit aus dem Cache gelöscht werden sollten (siehe unten). % TODO einfügen % AWS Caching + T S429
+
+\subsubsection{Nutzung und Preis des Cachings}
+
+Durch das Nutzen von Caching kann die Zuverlässigkeit gesteigert werden, da auch in Fall eines Ausfalls weitergearbeitet wird. Ebenso wie eine bessere Performance ein großer Vorteil ist, der sich durch die nähe des Caches zum System ergibt. Dahingegen kann es zu Konsistenzproblemen kommen, wenn auf den Cache zugegriffen wird, während sich die eigentlichen Nutzdaten geändert haben. Somit entsteht ein Problem der Aktualität des Caches. Um dies zu umgehen dürfen sich die gecacheten Daten nicht weiter verändern oder der Cache muss immer aktuell gehalten werden. Das erzeugt natürlich wieder einen höheren Verbrauch von Netzwerkbandbreite.  % T S31
+
+Ein Cache ist auch nur dann nützlich, wenn die Daten zu einem späteren Zeitpunkt aus dem Cache geladen werden. Ist dies nicht der Fall hat man keinen Vorteil einer besseren Performance. Hingegen benötigt der Cache speicherplatz. Hierbei entsteht eine abwägung zwischen Performance und den Speicherkosten. % T S31
+
+\subsubsection{Arten von Caching}
+
+In einem Informationstechnologischen System gibt es viele Punkte an denen man Caching einsetzten kann. So kann auf Client-Seite ein z.B. ein Browser Daten Cachen um den Abruf von Web-Inhalten zu beschleunigen. Ebenso findet man Caching Strategien auch in DNS-Server, wenn es um die Domain-zu-IP-Auflösung geht. % AWS Caching
+
+Desweiteren kann man mithilfe von Schlüssel/Wert-Speicher oder lokalen Caches die Anwendungsleistung und den Datenzugriff beschleunigen. Genauso lassen sich auch andere Abrufe über das Web beschleunigen.
+Auch Datenbankabfragen die oft ausgeführt werden können mit Hilfe von Caching mit einer geringeren Latenz erfolgen. % AWS Caching
+
+\subsection{Haltedauer, Ablaufzeit, TTL}
+
+Damit der Speicher vom Cache nicht übervoll wird und irgendwann keine weiteren Daten mehr gespeichert werden können, ist es Hilfreich eine Ablaufzeit einzurichten. Die \ac{ttl} ist dabei eine Abwägung von der blockierten Speichermenge und dem Zeitraum in dem die Daten potenziell genutzt werden könnten. Auch bei dieser Architekturentscheidung gilt verdeutlicht sich wieder das Zitat von Neal Ford: "There are no right or wrong answers in architecture - only trade-offs." % Fundamentals of Software Architekture Kap2 Analyzing Trade-Offs
+
+In dem Fall für das System der \ac{sbb} ist auch die Lebenszeit der Offers und Orders von Seitens Railkit zu beachten. Eine Speicherung von Cache-Daten über den Zeitraum von der Lebenszeit kann zu weiteren Fehlern führen. Ein solcher Fehler könnte Cache Inkonsistent sein, der dann auftritt, sobald die Offers und Orders aus dem Cache genutzt werden, aber nicht mehr auf Seiten von Railkit verfügbar sind. % Tannenbaum Kap 7.2.3 Conitnuous consistency S 410-411
+In diesem speziellen Fall wüsste Railkit nicht mehr um welches Offer oder Order es sich handelt. % TODO Railkit gültigkeit
+
+\subsection{In-Memory-Cache: Redis}
+
+Eine Möglichkeit Ereignisse zu Cachen ist zum Beispiel die Nutzung von Redis als eine In-Memory-Cache option. Wie der Name schon sagt, befindet sich die NoSQL Datenbank im \ac{ram}. % TODO Quelle für NoSQL
+Redis ist dabei eine häufig genutzte Möglichkeit um Lesezugriffe auf einen langsameren Server oder Datenbank zu beschleunigen, indem man die Ereignisse cached. % Redis Key eviction
+
+Redis setzt dabei beim speichern der Daten auf ein Key-Value-Prinzip. Dadurch lässt sich jeder Eintrag durch einen eindeutigen Schlüsel mit GET- und SET-Befehlen speichern und abrufen. % Redis quick-start
+Dabei ist Redis ein "Data Structure Server", der gewisse native Datentypen für Aufgabe von Caching bis Queuing und Event Processing bereitstellt. Zu den Kerndatentypen zählen Strings (Byte-Folgen), Listen, Sorted Sets, aber auch Hashes (Feld-Wert-Paare). % Redis Data Types
+Hierbei ist zu beachten, dass der JSON Datentyp ein höheren Speicher und Rechenaufwand mit sich bringt, als ein String oder Hash. Wobei ein String nochmal weniger Speicher und Rechenleistung benötigt. % Redis copare data types
+
+
+Ein Feature welches gegen einen Überlauf des Speichers wirken kann, ist das Nutzten von \ac{ttl} mit dem Befehl "EXPRIRE". Dieser Befehl setzt einen Timeout auf einen Schlüssel, wodurch dieser ein Ablaufdatum erhält. Nach dem Ablauf der Zeit wird der entsprechende Eintrag entfernt. % Redis EXPIRE
+
+\subsection{Performance-Begriffe und Messgrößen}
+
+Grundlegend gibt es verschiedene Performance Begriffe die sich in in Ihrer Bedeutung ähnlich sind. So beschreibt die Response Time die vom Client wahrgenommene Gesamtdauer des Request. Dahingegen beschreibt die Latenz die reine Verögerung, in der eine anfrage auf eine Bearbeitung wartet. % Kleppmann, Kap. 1 „Reliable, Scalable, and Maintainable Applications“, Abschnitt: Scalability $\rightarrow$ „Describing Performance“ 
+Die Response Time ist also die Zeit die der Service braucht, der Netzwerklatenz und den Wartezeiten in potenziellen Schlangen.
+
+Der Begriff Performance beschreibt die effizient der tatsächlichen Gesamtverabeitung. Hierbei ist Caching ein entscheidender Faktor, da Caching Primär die Ausführung beschleunigt. Dahingegen steht die Responsiveness, die die Zeit bis zur ersten Rückmeldung an den Nutzer misst. Diese Rückmeldung kann zum Beispiel eine Bestätigung sein und muss nicht der vollständige Response sein. % Richards & Ford, Kap. 15 „Event-Driven Architecture“, Abschnitt: „Asynchronous Capabilities
+
+\subsubsection{Spezifische Messgrößen für die Caching-Evaluation}
+
+Um eine Implementierung von Caching evaluieren zu können gibt es Messgrößen, die dafür besonders in Frage kommen. Dazu zählt die Hit Rate. Diese zählt wie viele der Anfragen direkt aus dem Cache beantwortet werden können, ohne ein externes System dafür aufzurufen. Sie ist ausschlaggebend darüber, wie gut die Daten gecached werden oder ob Anfragen durch das Raster fallen. % van Steen & Tanenbaum, Kap. 7, Abschnitt 7.4.2 „Client-initiated replicas“, S. 429; Kleppmann, Kap. 1, Abschnitt: Scalability $\rightarrow$ „Describing Load“
+
+Desweiteren lassen sich die externen Request zählen. Mit weniger externen Request sinkit die Last auf die Netzwerkinfrastrukur, aber auch die der externen API. % van Steen & Tanenbaum, Kap. 7, Abschnitt 7.6 „CDN-Metriken“, S. 454–455
+Da externe Request auch immer teurer sind als lokale Request, aufgrund der Geografischen Distanz, kann man so auch von einer besseren Gesamtverarbeitung ausgehen. Das liegt daran dass lokale Request teilweise nur Mikrosekunden dauern, wohingegen externe Aufrufe mehrere Millisekunden brauchen. % van Steen & Tanenbaum, Kap. 1, Abschnitt 1.2.6 „Geographical scalability“, S. 27
+
+Eine weitere Messgröße die es zu betrachten gilt ist die Response Time, da diese am ehesten von dem Client wahrgenommen wird. Ebenso ist diese größe direkt abhängig von der Hit-Rate und der Anzahl der externen Requests. Mithilfe der Response Time lässt sich die Effektivität der Implementierung analysieren veranschaulichen. 
+
+Generell ist es wichtig zu beachten, dass in die Evaluation auch der Prozess des speicherns mit in Betracht gezogen werden muss. Da dieser auch eine gewisse Zeit in anspruch nimmt. Die Speicherzeit muss dann zu der Zeitersparnis ins Verhältnis gestellt werden. In dem Fall der Coupon Validierung muss dafür mit in Betracht gezogen werden, dass nur ein geriner Anteil der Tickets überhaupt mit einem Coupon bezahlt werden.
+
+
+
+\subsection{Fachlicher Kontext}
+% Order und Offer erklären
+
+Um die Arbeit vollständig verstehen zu können, ist es wichtig den Fachlichen Kontext zu verstehen. Dazu gehört ein grundlegendes Verständnis über Railkit, \ac{ip}-Coupons und dem Unterschied zwischen Orders und Offers.
+
+\subsubsection{Railkit}
+
+Railkit ist für die \ac{sbb} ein wichtiges System, welche eine anbindung von anderen Bahnsystemen, wie zum Beispiel die Deutsche Bahn, ermöglicht. Dabei ist Railkit ein Service von der Amadeus IT Group die ein Computerreservierungssystem zur Verfügung stellen. Ursprünglich war Amadeus ausschließlich ein Flugreservierungssystem wurde aber von dem Punkt aus weiter ausgebaut. % wiki Amadeus IT Group
+
+Das System übernimmt für die \ac{sbb} das erstellen von Internationalen Reisen, in dem es die Reise nach Ländern aufteilt und sich dann die jeweiligen möglichen Optionen heraussucht. So ist es möglich Reisen in das Schweizer Ausland zu tätigen, weil Railkit weltweit über 90 Bahngesellschaften angebunden hat. % Amadeus
+
+\subsubsection{Orders und Offers}
+
+Der Unterschied zwischen einer Order und einer Offer, wie sie Railkit verwendet, ist ebenfalls relevant für das Verständnis. Sobald eine gewisse Strecke von Ort A nach Ort B angefragt wird werden mehrere verschiedene Offers oder Angebote erstellt. Die Unterschiedlichen Angebote kommen zum Beispiel von verschiedenen Abfahrtszeiten oder verschiedenen Verbindungen die einem angeboten werden. Sobald der Kunde sich eine Verbindung aussucht und diese in den Warenkorb legt wird ein Platz in der Verbindung Reserviert und die Offer wird zur Order. Somit kann sichergestellt werden, dass der Kunde das Ticket im Warenkorb auch später wirklich bekommen kann.
+
+Im eigentlichen System werden somit deutlich öfter Offers als Orders erstellt. Aber erst aus den Orders entstehen später die eigentlichen Tickets, sobald der Kaufprozess abgeschlossen ist.
+
+\subsubsection{IP-Coupon}
+
+Da sich die Arbeit um die Reduzierung redundanter Datenzugriffe in einem System zur Coupon-Validierung beschäftigt, muss auch geklärt werden was ein solcher \ac{ip}-Coupon ist. 
+
+Ein solcher \ac{ip}-Coupon ist ein Coupon, der für internationale Reisen genutzt werden kann. So ist es möglich über zum Beispiel Werbeaktionen Coupon Codes für solche Reisen heraus zu geben.
+
+Die Validierung findet, ob der Coupon Code aktiv ist erfolgt dann zum Zeitpunkt des einlösen mithilfe einer Stammdatenbank. % TODO prüfen ob das korrekt ist

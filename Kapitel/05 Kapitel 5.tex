@@ -1,0 +1,242 @@
+\section{Evaluaition der entwickelten Lösung}
+\label{sec:evaluation}
+
+In diesem Kapitel wird die in Kapitel~\ref{sec:konzeption} beschriebene Caching-Lösung anhand der Zielsetzung bewertet. Dabei steht die Frage im Mittelpunkt, in welchem Umfang die Anzahl der Anfragen an \textit{Railkit} reduziert werden und wie sich die Lösung auf die Antwortzeiten im Validierungsprozess auswirken.
+
+Die Evaluation erfolgt auf zwei Ebenen, um die funktionale Korrektheit automatisiert zu prüfen. Genauso wie anschließend die nicht-funktionalen Eigenschaften in einem Messexperiement untersucht werdern. Abschließend wird der zusätzliche Aufwand für das Befüllen des Caches der gezielten Einsparung beim Abrufen gegenübergestellt.
+
+\subsection{Funktionale Überprüfung}
+\label{subsec:tests}
+
+Zur automatiesierten prüfung der funktionalen Korrektheit werden Unit-Tests verwendet. Diese können in eine automatiesierte Build-Pipeline des Service integriert werden.
+
+Der Komponententext \texttt{CachingServiceComponentTest} stellt sicher, dass Angebotsteile unter einer Offer-ID sowie Offer-IDs unter einer Order-ID geschrieben und gelesen werden können. Die Prüfung der Persistenzschicht gegen eine Redis-Instanz prüft zusätzlich die Rückgabe einer leeren Liste, bei einem fehlenden Eintrag. Für das Testen werden einfachte Testdaten verwendet.
+
+Mit Unit-Tests wird dies auf der Geschäftslogikebene ergänzt:
+
+\begin{itemize}
+    \item \textbf{Coupon-Validierung:} Hier wird geprüft, ob die Validierung ohne Aufruf von \textit{Railkit} erfolgt, wenn die Angebotsteile im Cache liegen. Ebenso wird geprüft, ob das erwartete Validierungergebniss zurück gegeben wird und das Ergebnis dem fachlich erwarteten Verhalten entspricht.
+    \item \textbf{Abfage der Angebotsteile:} Die Offer-ID und Order-ID Abfrage werden jeweils aus dem Cache bedient.
+    \item \textbf{Befüllung bei der Angebotssuche:} Die Angebotsteile für reguläre Anfragen werden gecacht, für Crawler Anfragen hingegen nicht.
+\end{itemize}
+
+Durch bereits vorhandene Test wird das Verhaltne bei einem Fehlerzugriff, also dem Rückgriff auf \textit{Railkit}, abgedeckt. Diese laufen auch nach der Umsetzung weiterhin erfolgreich durch.
+
+\subsection{Versuchsaufbau}
+\label{subsec:versuchsaufbau}
+
+Um die Implementierung mit dem vorherigen Stand vergleichen zu können, wurden zwei Instanzen des Services \texttt{zvs-reise-ip} lokal betrieben. Die Instanz mit dem Stand vor der Optimierung und die Instanz mit der Caching-Lösung sind beide an dieselbe Testumgebung von \textit{Railkit} angebunden.
+
+Die Messung durchläuft alle in Kapitel ~\ref{sec:untersuchung} beschriebenen Endpunkte und besteht aus folgenden Anfragen:
+
+\begin{enumerate}
+    \item Angebotssuche (\texttt{CREATETRIPOFFERS}),
+    \item Prebooking des ersten gefundenen Angebots (\texttt{CREATEPREBOOKINGV2}),
+    \item Abfrage der Angebotsteile per Order-ID (\texttt{GETOFFERPARTSBYORDERID}),
+    \item Abfrage der Angebotsteile per Offer-ID (\texttt{GETOFFERPARTSBYOFFERID}),
+    \item Validierung eines \ac{ip}-Coupons (\texttt{VALIDATEOFFERPARTS}).
+\end{enumerate}
+
+Da der Messablauf sowohl die Abfrage per Order-ID als auch die Abfrage per Offer-ID beinhaltet, werden die Abläufe von CASA, dem Webshop und der Mobile-App abgedeckt (vgl. Abschnitt~\ref{subsec:prozess_mobile}. Die Anfragen wurden in einer HTTP-Datei definiert, womit das automatiesierte ausführen der Anfragen über die Kommandozeile ermöglicht wird. Jeder Durchlauf erhielt dabei eine eigene protokolierte Prozess-ID.
+
+Pro Instanz wurden 30 Durchläufe durchgeführt. Dabei wurden beide Varianten abwechselnd ausgeführt, sodass zeitliche Schwankungen in den Antwortzeiten von \textit{Railkit} beide Varianten ähnlich betreffen. Da jeder durchlauf mit einer neuen Angebotssuche begann, lag zu beginn kein passender Eintrag im Cache vor. Somit wurde stets die gesamte Kette aus Befüllen und Lesen gemessen. Die äußeren Bedingungen waren ebenfalls in jedem durchlauf Identisch. Dabei diente eine Direktverbindung von Bern nach Berlin Hbf mit dem ICE~372 mit Abfahrt am 27.11.2026 um 09:04~Uhr für einen Reisenden als Testfall. Mit einer Verbindung aus einem einzigen Segment ohne Umstieg, ist der Testfall bewusst einfach gewählt.
+
+Die zentrale Protokollierungskomponente Kommlog (vgl. Abschnitt~\ref{subsec:architektur}) diente als Messinstrument um sämtliche eigehend und Ausgehende Anfragen an \textit{Railkit} mit einem Zeitstempel und einer Dauer aufzuzeichnen. Mithilfe eines eigens erstellten Skripts ließen sich die Einträge zu jeder Prozess-ID auslesen. Die ermittelte Antwortzeit und die Anzahl der zugehörigen Aufrufe an \textit{Railkit} wurden pro Operation erfasst. Ein \textit{Railkit} Aufruf wurde dabei immer der Operation zugeschrieben, in deren Zeitfenster zwischen Anfrage ud Antwort er stattfand.
+
+Fehlerhafte durchläufe wurden als ungültig gewertet und nicht weiter in die Betrachtung einbezogen. Die vollständigen Messwerte befinden sich in Anhang~\ref{anh:messwerte}. % TODO Label Anhang anpassen
+
+\subsection{Gewählte Kennzahlen}
+\label{subsec:kennzahlen}
+
+Zur Bewertung werden die eingeführten Messgröße (vgl. Abschnitt~\ref{subsec:performance} der Anzahl externer Anfragen, sowie die Antwortzeit herangezogen.
+
+Die Antwortzeiten werden jedoch nicht anhand des arithmetischen Mittel ausgewertet, da der Mittelwert durch einzelne, besonders langsame Antworten stark beeinflusst wird. Gleichzeitig wird die häufigkeit solcher Ausreißer verschleiert, weshalb stattdessen Perzentile verwendet werden. % Kleppmann, Kap. 1 „Reliable, Scalable, and Maintainable Applications“, Abschnitt: Scalability -> „Describing Performance“
+Der Median (p50) beschreibt die typische Antwortzeit, wodurch dieser interessant zu betrachten ist. Hingegen gibt das 95. Perzentil (p95) die Antwortzeit an, die von 95\,\% der Anfragen nicht überschritten wird und macht damit Ausreißer sichtbar. Ergänzend werden noch minimale und maximale Werte der Messung angegeben.
+
+Eine Cache-Hit-Rate von 100\% ist im Versuchsaufbau konstruktionsbedingt, da jeder Valdierung eine Angebotssuche vorausgeht. Der Cache wird für jeden durchlauf befüllt, weshalb die Treferquote nicht gesondert ausgewertet wird (vgl. Abschnitt~\ref{subsec:grenzen_evaluation}).
+
+\subsection{Anzahl der Anfragen an Railkit}
+\label{subsec:ergebnis_anfragen}
+
+In Tabelle~\ref{tab:ergebnis_anfragen} werden die Anzahl der \textit{Railkit} Aufrufe pro Operation gezeigt. Die Werte waren in allen 30 Durchläufen einer Variante identisch.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{p{0.42\textwidth} r r}
+        \hline
+        \textbf{Operation} & \textbf{ohne Cache} & \textbf{mit Cache} \\
+        \hline
+        \texttt{CREATETRIPOFFERS} & 3 & 3 \\
+        \texttt{CREATEPREBOOKINGV2} & 5 & 5 \\
+        \texttt{GETOFFERPARTSBYORDERID} & 1 & 0 \\
+        \texttt{GETOFFERPARTSBYOFFERID} & 1 & 0 \\
+        \texttt{VALIDATEOFFERPARTS} & 2 & 0 \\
+        \hline
+    \end{tabular}
+    \caption{Anzahl der Aufrufe an Railkit pro Operation (n = 30 je Variante)}
+    \label{tab:ergebnis_anfragen}
+\end{table}
+
+Mit der Messung werden die in Abschnit~\ref{subsec:redundanzen} identifizierten redundanten Anfragen bestätigt, die mit der Caching-Lösung entfallen. Für sämtliche Aufrufe der Operationen \texttt{CREATETRIPOFFERS} und \texttt{CREATEPREBOOKINGV2} innerhalb der Coupon-Validierung werden ebenso keine zusätzlichen Aufrufe getätigt. Alle für die Validierung releveanten Daten werden beim Befüllen des Caches ausschließlich von onehin abgerufenen \textit{Railkit} Anfragen genutzt.
+
+Auf einen vollständigen Buchungsablauf mit Coupon-Validierung ergeben sich folgende Einsparungen:
+
+\begin{itemize}
+    \item \textbf{CASA und Webshop} (Suche, Prebooking, Abfrage per Order-ID, Validierung): Die Anzahl der Aufrufe sinkt von elf auf acht, was einer Reduktion um rund 27\,\% entspricht.
+    \item \textbf{Mobile-App} (Suche, Abfrage per Offer-ID, Validierung): Die Anzahl der Aufrufe sinkt von sechs auf drei, was einer Reduktion um 50\,\% entspricht.
+\end{itemize}
+
+Für die Coupon-Validierung können in allen Kanälen die \textit{Railkit} Aufrufe vollständig eingespart werdern. Die verbleibenden Aufrufe, wie die Suche und Prebooking, sind fachlich notwendig, da sie die Angebote sowie den Warenkorb ermitteln und bei \textit{Railkit} anlegen.
+
+\subsection{Antwortzeiten}
+\label{subsec:ergebnis_antwortzeiten}
+
+Tabelle~\ref{tab:ergebnis_antwortzeiten} fasst die gemessenen Antwortzeiten zusammen.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabular}{l l r r r r r}
+        \hline
+        \textbf{Operation} & \textbf{Variante} & \textbf{Ø} & \textbf{p50} & \textbf{p95} & \textbf{Min} & \textbf{Max} \\
+        \hline
+        \texttt{GETOFFERPARTSBYORDERID} & ohne Cache & 645,9 & 633,5 & 710,1 & 591 & 730 \\
+                                        & mit Cache  & 2,3   & 2     & 3,6   & 1   & 5 \\
+        \hline
+        \texttt{GETOFFERPARTSBYOFFERID} & ohne Cache & 144,5 & 147   & 157,9 & 127 & 162 \\
+                                        & mit Cache  & 2,0   & 2     & 3,0   & 0   & 4 \\
+        \hline
+        \texttt{VALIDATEOFFERPARTS}     & ohne Cache & 355,6 & 347,5 & 440,3 & 311 & 470 \\
+                                        & mit Cache  & 2,6   & 3     & 4,0   & 2   & 4 \\
+        \hline
+        \texttt{CREATETRIPOFFERS}       & ohne Cache & 5.140,2 & 4.810   & 8.160,0 & 3.139 & 9.170 \\
+                                        & mit Cache  & 3.462,4 & 3.040,5 & 5.373,3 & 2.508 & 5.903 \\
+        \hline
+        \texttt{CREATEPREBOOKINGV2}     & ohne Cache & 3.551,4 & 3.501   & 4.015,9 & 3.212 & 4.420 \\
+                                        & mit Cache  & 2.729,1 & 2.686,5 & 2.983,1 & 2.455 & 3.390 \\
+        \hline
+    \end{tabular}
+    \caption{Antwortzeiten in Millisekunden ohne und mit Cache (n = 30 je Variante)}
+    \label{tab:ergebnis_antwortzeiten}
+\end{table}
+
+\paragraph{Operationen der Coupon-Validierung}
+Die drei Operationen der Coupon-Validierung zeigen eine stark sinkende Antwortzeit durch den Cache auf, der von mehreren hunder Millisekunden auf zwei bis drei Millisekunden im Median sinkt. Somit ergibt sich eine Reduktion von 98,6\,\% bei \texttt{GETOFFERPARTSBYOFFERID} bis 99,7\,\% bei \texttt{GETOFFERPARTSBYORDERID}. Auch im 95. Perzentil zeigt sich dasselbse Bild: Die langsamsten Anfragen mit Cache benötigen nicht mehr als 5 Millisekunden.
+
+Ebenso fällt neben der absoluten Zeitersparnis die geringe Streuung auf. Ohne Cache schwanken die Antwortzeiten deutlich von \texttt{VALIDATEOFFERPARTS} zwischen 311 und 470 Milliskeunden. DIes ist maßgeblich von der Antwortzeit von \textit{Railkit} abhängig. Durch den Cache entfällt genau diese Abhängigkeit und die Antwortzeit wird nur noch durch den Redis Zugriff und die interne Verarbeitung beeinflusst (vgl. Abschnitt~\ref{subsec:redis}.
+
+Die auffällig längere Antwortzeit von 
+\texttt{GETOFFERPARTSBYORDERID} gegenüber \texttt{GETOFFERPARTSBYOFFERID} ohne Cache lässt sich auf die Abfrage der vollständigen \textit{Order} bei \textit{Railkit} zurückführen. Unteranderem auch, weil eine \textit{Order} umfangreicher als ein einzelnes \textit{Offer} ist.
+
+Am Ende erfährt der Nutzer eine spürbare Verbesserung der Validierung. Über CASA sinkt die Wartezeit von den summierten Medianen (\texttt{GETOFFERPARTSBYORDERID} und 
+\texttt{VALIDATEOFFERPARTS}) von rund einer Sekunde auf etwa fünf Millisekunden mit Cache. In der Mobile-App verkürzt sich die Wartezeit von rund einer halben Sekund auf wenige Millisekunden.
+
+\paragraph{Angebotssuche und Prebooking}
+Auch bei \texttt{CREATETRIPOFFERS} und \texttt{CREATEPREBOOKINGV2} fällt auf, dass die Variante mit Cache geringere Antwortzeiten hat. Dieses Ergebnis lässt sich jedoch nicht als Effekt der Caching-Lösung werten, da beide Operationen zu zusätzlicher Arbeit führen. Das zusätzliche extrahieren und ablegen der Daten in Redis lässt keine verbesserte Laufzeit vermuten. 
+
+Um die Ursache der Unterschiede weiter einzugrenzen, wurde die Antwortzeit jeder Operation zerlegt: die Zeit der Aufrufe an \textit{Railkit}, die Zeit sonstiger externer Aufrufe (etwa an den JourneyService) sowie die verbleibende interne Verarbeitungszeit des Services. Die Grundlage für Tabelle~\ref{tab:zeitaufteilung} sind ebenfalls wieder die Kommlogs.
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabular}{l l r r r r}
+        \hline
+        \textbf{Operation} & \textbf{Variante} & \textbf{Gesamt} & \textbf{Railkit} & \textbf{Sonst. extern} & \textbf{Intern} \\
+        \hline
+        \texttt{CREATETRIPOFFERS}       & ohne Cache & 4.810   & 2.801,5 & 103,5 & 1.824 \\
+                                        & mit Cache  & 3.040,5 & 2.863   & 98,5  & 38 \\
+        \hline
+        \texttt{CREATEPREBOOKINGV2}     & ohne Cache & 3.501   & 2.625   & 0     & 859,5 \\
+                                        & mit Cache  & 2.686,5 & 2.657,5 & 0     & 27 \\
+        \hline
+        \texttt{GETOFFERPARTSBYORDERID} & ohne Cache & 633,5   & 587,5   & 0     & 45 \\
+                                        & mit Cache  & 2       & 0       & 0     & 2 \\
+        \hline
+        \texttt{GETOFFERPARTSBYOFFERID} & ohne Cache & 147     & 144     & 0     & 3 \\
+                                        & mit Cache  & 2       & 0       & 0     & 2 \\
+        \hline
+        \texttt{VALIDATEOFFERPARTS}     & ohne Cache & 347,5   & 256,5   & 0     & 90 \\
+                                        & mit Cache  & 3       & 0       & 0     & 3 \\
+        \hline
+    \end{tabular}
+    \caption{Aufteilung der Antwortzeit in Millisekunden (Median, n = 30 je Variante). Da jeder Anteil einzeln ausgewertet wird, ergibt die Summe der Mediane nicht exakt den Median der Gesamtzeit.}
+    \label{tab:zeitaufteilung}
+\end{table}
+
+Die Zerlegung zeitgt, dass die Antwortzeiten von \textit{Railkit} nahezu identisch sind und sich lediglich die interne Verarbeitungszeit deutlich voneinander unterscheidet. Somit lassen sich die Unterschiede der Gesamtzeit auf eine erheblich langsamere interne Verarbeitung zurückführen.
+
+Hingegen ist Aussagekräftig, dass der zusätzliche Schreibaufwand laut der Messung keinen Einfluss auf die Zeit hat. Da Redis Schreibzugriffzeiten im Bereich weniger Millisekunden hat, gehen diese in der Schwankungsbreite der gemessen Zeiten von \textit{Railkit} Antworten unter. Gerade der \texttt{CREATETRIPOFFERS} Request zeigt einen deutlichen Abstand ziwschen Median und 95. Perzentil, was auf die starken einzelnen Ausreißer hinweist. Ohne Cache liegt der Mittelwert mit 5.140,3 Millisekunden rund 330 Millisekunden über dem Median von 4.810 Millisekunden. Der Durchschnitt wird dementsprechend durch wenige langsame Durchläufe (bis zu 9.170 Millisekunden) nach oben gezogen. Aus diesem Grund wäre er als alleinige Kennzahl wenig aussagekräftig.
+
+\subsection{Speicherbedarf im Cache}
+\label{subsec:speicherbedarf}
+
+Um den Speicherbedarf zu ermitteln wurde nach der Messung für einen Teil der Schlüssel mit dem \texttt{reiseip.offerPartInformation} der tatsächliche Speicherverbrauch in Redis mit dem \texttt{MEMORY USAGE} befehl bestimmt. Tabelle~\ref{tab:speicherbedarf} zeigt das Ergebnis.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{l r}
+        \hline
+        \textbf{Kennzahl} & \textbf{Wert} \\
+        \hline
+        Anzahl untersuchter Einträge & 50 \\
+        Speicherbedarf gesamt & 54,4 KB \\
+        Speicherbedarf pro Eintrag (Mittelwert) & 1.115 B \\
+        Speicherbedarf pro Eintrag (Min -- Max) & 992 B -- 1.376 B \\
+        \hline
+    \end{tabular}
+    \caption{Speicherbedarf der Cache-Einträge für Angebotsteile in Redis}
+    \label{tab:speicherbedarf}
+\end{table}
+
+Bei genauem Betrachten der Einträge fällt auf, dass ausschließlich zwei Größen auftreten. 34 Eintrage mit 992 Byte und 16 Einträge mit 1376 Byte, was auf einen Unterschied in der Anzahl der enthaltetenen Angebotsteile hindeutet.
+
+Für die Einordnung der Werte ist zu beachten, dass sie auf einer Direktverbindung mit nur einem Segment beruhren (vgl. Abschnitt ~\ref{subsec:versuchsaufbau}. Somit stellen die gemessenen Größen eine untere Grenze dar. Bei einer Verbindung mit mehr Umstiegen sind in einem Eintrag mehrere Abfarhts- und Ankunftsbahnhöfe vorhanden, genauso wie mehr Angebotsteile hinzukomen durch die Fahrtberechtigungen pro Teilstrecke. Mehrere Reisende erhöhen zudem die Anzahl der Angebtosteile und der Speicherbedarf wächst weiter, bleibt jedoch im Bereich weniger Kilobyte.
+
+Dabei zeigen sich auch die die Vorteile vom reduzierten Datenmodell. Bei derselben Testverbindung umfasst im Kommlog die Antwort auf die \textit{Railkit} Abrage eines \textit{Offers} rund 4,3 KB. Eine Antwort auf die zugehörige Reiseroute rund 7,8 KB, was zusammen rund 12 KB sind. Mit dem reduzierten Datenmodell wird damit nur etwa ein Zehntel dieses Umfangs benötigt.Da die Werte aus dem Kommlog die übertragene Nachrichtengröße und die Werte aus Redis den tatsächlichen Speicherverbrauch angeben, ist dieser Vergleich als Größenordnung zu verstehen. Er bestätigt dennoch die in Abschnitt~\ref{subsubsec:datenmodell} getroffene Entscheidung, nur die validierungsrelevanten Werte zu speichern.
+
+Für eine Abschätzung des Speicherbedarf in der Produktiven Umgebung wird die Anzahl der gesuchten Angebote herangezogen. Im Oktober 2026 betrug diese rund 17,9 Millionen Angebotssuchen. % new Relic
+Damit ergeben sich im Mittel rund 577.000 suchen pro Tag, was rund 48.000 Suchen innerhalb der \ac{ttl} von zwei Stunden sind. Mit der Annahme, dass pro \textit{Offer} durchschnittlich 1.115 Byte gecacht werden, ergibt sich ein mittlerer Speicherbedarf von rund 54 MB. Wenn jedoch pro Suche mehrere \textit{Offers} zurückgegeben werden oder die Verbindung mehrere Segmente enthält, erhöht sich dieser Wert entsprechend. Die Abschätzung stellt daher nur als untere Grenze zu Verstehen. Im Testfall enthält die Angebotssuche fünf \textit{Offers}, wodurch die Abschätzung auf 270 MB ansteigen würde. Da dieser Wert nur ein Tagesmittel ist, liegt der Speicherbedarf zu Spitzenzeiten darüber.
+
+Durch die nutzung der Time-To-Live, wächst der Speicherbedarf nicht ins unermessliche, da alle Einträge nach zwei Stunden entfernt werden. Der Cache pendelt sich somit auf einem Niveau ein, dass von der Anzahl der Suchen innerhlab der \ac{ttl} abhängt.
+
+\subsection{Abwägung zwischen Schreibaufwand und Einsparung}
+\label{subsec:abwaegung}
+
+Ein Cache entfaltet, wie in Abschnitt~\ref{subsec:caching} beschrieben, seinen Nutzten nur, wenn die Wiederverwendungsrate der gespeicherten Daten ausreichend hoch ist. Im Fall der entwickelten Lösung ist diese Rate gering, wie in Tabelle~\ref{tab:look_to_book} aus dem Verhältnis von Angebotssuchen zu Buchungen zu sehen ist.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{l r r r}
+        \hline
+        \textbf{Monat} & \textbf{Looks} & \textbf{Books} & \textbf{Look-to-Book} \\
+        \hline
+        Oktober 2026 & 17,9 Mio. & 335.000 & 53,5 \\
+        September 2026 & 3,47 Mio. & 66.700 & 51,9 \\
+        \hline
+    \end{tabular}
+    \caption{Verhältnis von Angebotssuchen zu Buchungen} % TODO Quelle; 
+    \label{tab:look_to_book}
+\end{table}
+
+Demnach kommen aufeine Buchung rund 52 bis 54 internationale Angebotssuchen. Da eine Befüllung des  Caches bei der Angebtossuche erfolgt, nur jeder 53. geschriebene Eintrag überhaupt in einer Buchunng endet. Zudem wird auch nur ein teil der Buchungen mit einem \ac{ip}-Coupon bezahlt, weshlab der größte Teil der Einträge geschrieben wird, ohne jemals gelesen zu werden. % TODO Coupon Validierungen im Monat
+
+\begin{itemize}
+    \item \textbf{Kosten:} Pro gecachtem \textit{Offer} entsteht ein Schreibzugriff auf Redis, der im Bereich weniger Millisekunden liegt und in der Messung nicht nachweisbar war. Hinzu kommt ein Speicherbedarf von rund 1,1 KB pro Eintrag, der durch die \ac{ttl} zeitlich begrenzt ist. Suchen des Crawlers, die nie zu einer Buchung führen, werden nicht gecacht.
+    \item \textbf{Nutzen:} Pro Coupon-Validierung entfallen drei Aufrufe an \textit{Railkit}, und die Wartezeit für den Nutzer verkürzt sich um bis zu eine Sekunde. Zudem werden \textit{Railkit} und die Netzwerkinfrastruktur entlastet.
+\end{itemize}
+
+Daraus folgt, dass der Aufwand pro Eintrag gering ist, der Nutzen pro Treffer jedoch hoch. Die Verwendung des Cache trotz einer niedrigen Wiederverwendungsrate ist eine bewusste Folge der Entscheidung. Eine Befüllung während der Prebooking Operation hätte die Anzahl der Einträge veringert, jedoch wäre die Coupon-Validierung in der Mobile-App nur über die externen Aufrufe möglich. Für die einheitliche und kanalübergreifende Lösung ist der Speicherplatz somit der Preis.
+
+\subsection{Grenzen der Evaluation}
+\label{subsec:grenzen_evaluation}
+
+Bei der Interpretation der Ergebnisse sind folgende Einschränkungen zu beachten:
+
+\begin{itemize}
+    \item \textbf{Lokale Testumgebung:} Netzwerklatenzen, Last und Antwortzeiten weichen vom Produktivbetrieb ab, da die Messung auf lokal betriebenen Instanzen gegen eine Testumgebung von \textit{Railkit} gelaufen ist. Der relative Unterschied lässt sich hingegen vergleichen, da beide Varianten unter denselben Bedingungen gemessen wurden.
+    \item \textbf{Begrenzte Testfälle:} Insbesondere dem Speicherbedarf pro Eintrag fehlt es an komplexeren Verbindungen mit mehr Reisenden, mit Umstiegen und ähnlichem, weshalb dieser in der Produktivumgebung höher ausfallen wird. Auf die Anzahl der eingesparten Aufrufe pro \textit{Offer} hat dies jedoch keinen Einfluss.
+    \item \textbf{Trefferquote:} Im Versuchsaufbau wurde jeder Eintrag vor seinem Ablauf gelesen. Im Produktivbetrieb treten auch Fehlzugriffe auf, etwa wenn zwischen Angebotssuche und Validierung mehr als zwei Stunden vergehen. Die tatsächliche Trefferquote lässt sich derzeit nicht ermitteln, da Treffer und Fehlzugriffe nicht protokolliert werden.
+    \item \textbf{Speicherbedarf:} Der Speicherbedarf im Produktivbetrieb wurde auf Basis der Eintragsgröße abgeschätzt, aber nicht gemessen.
+\end{itemize}

@@ -1,0 +1,28 @@
+\glsdefs@newdocentry{repo}%
+{%
+name={Repository},%
+sort={Repository},%
+type={main},%
+first={Repository},%
+firstplural={Repositorys},%
+text={Repository},%
+plural={Repositorys},%
+description={Github und so},%
+descriptionplural={Github und so},%
+symbol={\relax },%
+symbolplural={\relax },%
+user1={},%
+user2={},%
+user3={},%
+user4={},%
+user5={},%
+user6={},%
+long={},%
+longplural={},%
+short={},%
+shortplural={},%
+counter={page},%
+parent={},%
+%
+}%
+

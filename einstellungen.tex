@@ -1,0 +1,52 @@
+%Konfigurationsdatei für Angaben
+
+% Titel, Autor
+\setmytitle{Unterbrechungsfreie SIEM-Migration zu Splunk in einer AWS-Umgebung}
+\setmyauthor{Friedrich Lidzba}
+\setmyimmanr{s3005729}
+
+% Studienrichtung
+\setmyfos{Informationstechnik}
+% Studiengang
+\setmycos{3IT24-2}
+
+% Datum der Themenübergabe
+\setmytsdate{12.01.2026}
+% Datum der Abgabe
+\setmysdate{27.02.2026}
+\setmyyear{\the\year} %für Links in der Fußnote
+
+%Semester
+\setmysemester{3}
+%Gutachter (mit Titel!)
+\setmyexpert{Florian Lorch}
+
+% Anschrift der Firma (Ort wird auch für Unterschriften verwendet)
+\setmycompany{Deutsche Telekom AG}
+\setmystreet{Riesaerstraße 5}
+\setmyplz{01129}
+\setmylocation{Dresden} % Stadt
+
+% Ob Sperrvermerk, Abbildungsverzeichnis, Glossar, Abkürzungsverzeichnis verwendet werden(true heißt mit, false ohne)
+\setbool{blockingNotice}{false} %Sperrvermerk
+\setbool{lof}{true} %Abbildungsverzeichnis
+\setbool{glossary}{true} %Glossar
+\setbool{loacr}{true} %Abkürzungsverzeichnis
+
+% Aussehen der Verlinkungen und festlegen des Titels
+\hypersetup{
+    pdftitle        = {\mytitle},
+    pdfauthor       = {\myauthor},
+    pdfsubject		= {Belegarbeit an der Dualen Hochschule Sachsen},
+    pdfcenterwindow	= {true},
+    colorlinks		= {false}, %Links farbig malen
+    linkcolor		= {HKS44-100},
+    citecolor		= {HKS57-100},
+    filecolor		= {HKS07-100},
+    urlcolor		= {HKS44-100},
+}
+
+%eigene Kurzbefehle -----------------------------------------
+\newcommand{\az}[1]{\glqq{}#1\grqq{}} %Anführungszeichen
+
+\newcommand{\dhsn}{\ac{dhsn}} %Schreibfaul, automatisch "DHSN" geschrieben

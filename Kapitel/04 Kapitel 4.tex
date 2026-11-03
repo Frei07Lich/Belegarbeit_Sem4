@@ -1,0 +1,234 @@
+\section{Konzeption und Umsetzung der Optimierung}
+\label{sec:konzeption}
+
+Dieses Kapitel beschreibt die Konzeption und Umsetzung, wie die in Kapitel~\ref{sec:untersuchung} identifizierten redundanten Anfragen an Railkit, mithilfe einer Caching-Lösung, reduziert werden können. Dafür werden zunächst die Anforderungen aus dem bestehenden Valdierungsprozess abgeleitet. Darauf aufbauend werden technische Details, wie die Caching-Strategie und das zwischengespeicherte Datenmodell, konzipiert. Abschließend wird die Umsetzung im \texttt{zvs-reise-ip} Service erläutert.
+
+
+% --------------------------------------------
+% 4.1 Ausgangslage und Anforderungen
+% --------------------------------------------
+\subsection{Ausgangslage und Anforderungen}
+\label{subsec:anforderungen}
+
+Wie in Kapitel~\ref{sec:untersuchung} gezeigt wurde, ruft der Service \texttt{zvs-reise-ip} an mehreren Stellen Daten von \textit{Railkit} ab, die zu diesem Zeitpunkt bereits zuvor geladen wurden:
+
+Wie in Kapitel~\ref{sec:untersuchung} bereits gezeigt wurde, werden Daten von \textit{Railkit} an mehreren Stellen abgerufen, die zuvor auch schon von dem \texttt{zvs-reise-ip} Service abgerufen wurden.
+
+\begin{itemize}
+    \item \textbf{Coupon-Validierung:} Für jede validierung einer \textit{Offer} werden zwei externe Requests ausgeführt. Über \texttt{getOfferWithItinerary} werden \textit{Offer} und die zugehörige Reiseroute (\textit{Itinerary}) von Railkit abgerufen.
+    \item \textbf{Abfrage der Angebotsteile per Offer-ID:} Für die Ermittlung der \textit{Offer Parts}, ist das erneute laden eines \textit{Offers} über \texttt{getOffer} notwendig.
+    \item \textbf{Abfrage der Angebotsteile per Order-ID:} Für die Ermittlung der \textit{Offer Parts} über die \textit{Order}, wird die vollständige \textit{Order} über \textit{getOrder} geladen.
+    
+\end{itemize}
+
+Die beschriebenen Informationen liegen dem System jedoch bereits vor. Mit einer Wiederholung des Requests aus der vorangegangenen Angebotssuche, führt dies zu einem reduntanten Datenzugriff, wodurch die Antwortzeit verlängert und das Drittsystem zusätzlich belastet wird.  
+
+Aus den Grundlagen (Kapitel~\ref{sec:grundlagen}) und der Zielsetzung der Arbeit ergeben sich folgende Anforderungen an die Lösung:
+
+\begin{itemize}
+    \item \textbf{Reduktion externer Requests:} Die Anzahl der externen Request zu \textit{Railkit} soll innerhalb der Coupon-Validierung auf ein Minimum reduziert werden.
+    \item \textbf{Geringe Belastung des Caches:} Der verteilte Cache soll nicht unnötig belastet werden, da nur ein geringer Anteil der Angebote überhaupt mit einem \ac{ip}-Coupon bezahlt wird(vgl. Abschnitt~\ef{subsec:caching}).
+    \item \textbf{Fachlich korrekte Gültigkeitsdauer:} Der Cache sollte nicht länger als das zugehörige Angebot bei \textit{Railkit} im Speicher gehalten werden (vgl. Abschnitt~\ref{subsec:ttl}.
+    \item \textbf{Unverändertes Validierungsergebnis:} Ein Ergebnis darf nach außen keine sichtbaren Unterschiede haben, unabhängig davon ob die Daten aus dem Cache oder direkt von \textit{Railkit} stammen.
+    \item \textbf{Fallback auf das Quellsystem:} Wenn kein Eintrag im Cache vorhanden ist, müssen die Daten wie bisher von \textit{Railkit} abgerufen werden.
+\end{itemize}
+
+% --------------------------------------------
+% 4.2 Konzeption
+% --------------------------------------------
+\subsection{Konzeption}
+\label{subsec:konzeption}
+
+\subsubsection{Caching-Strategie}
+\label{subsubsec:strategie}
+
+Die Caching-Strategie wird durch das Cache-Aside-Muster (auch \textit{Lazy Loading}) beschrieben. Bei diesem Muster kennt der Cache die eigentliche Datenquelle nicht, da die Anwendung selbst für die Verwaltung des Caches verantwortlich ist.% TODO Quelle Cache-Aside (z.B. Microsoft Azure Architecture Center, "Cache-Aside pattern")
+
+Ein Lesezugriff läuft dabei in drei Schritten ab:
+
+\begin{enumerate}
+    \item Zuerst wird geprüft, ob die notwendigen Daten im Cache liegen.
+    \item Mit einem Treffer (\textit{Cache Hit}) werden die Daten direkt aus dem Cache geladen, ohne dass ein externer Request erfolgt.
+    \item Bei einem Fehlzugriff (\textit{Cache Miss}) müssen die Daten neu aus dem Quellsystem geladen, verarbeitet und anschließend in den Cache geladen werden, damit nachfolgende Zugriffe direkt aus dem Cache bedient werden können.
+\end{enumerate}
+
+Bei der Coupon-Validierung wird dieses Muster eingesetzt, da \textit{Railkit} das führende System für alle Angebotsdaten bleibt. \texttt{Zvs-reise-ip} liest diese Daten ausschließlich. Somit sind schreibende Strategien wie \textit{Write-Through} oder \textit{Write-Behind}, zur Änderung von Daten aus dem Cache in das Quellsystem, nicht anwendbar.
+% TODO ggf. Quelle zu Write-Through/Write-Behind
+
+Hinzu kommt das proaktive befüllen des Caches (\textit{Cache Warming}), durch die Daten die bereits in einem anderen Prozessschritt von \textit{Railkit} gespeichert werden. Es entstehen keine weiteren externen Requests, da bereits der erste Zugriff in den Schritten der Coupon-Validierung aus dem Cache bedient wird.
+
+% TODO Abbildung: Sequenzdiagramm der Coupon-Validierung vorher und nachher
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=\textwidth]{img/sequenz_validierung.png}
+%     \caption{Ablauf der Coupon-Validierung mit Cache-Aside}
+%     \label{fig:sequenz_validierung}
+% \end{figure}
+
+\subsubsection{Reduziertes Datenmodell}
+\label{subsubsec:datenmodell}
+
+Bei den Überlegungen über das Datenmodell, wäre naheliegend die vollständige Antwort von \textit{Railkit} zu cachen. Jedoch enthält diese eine vielzahl an Informationen, die für die Coupon-Validierung nicht nötig sind. Um den Belastung nach den Anforderungen~\ref{subsec:anforderungen} gering zu halten, werden ausschließlich für die validierung relevante Werte gespeichert. % TODO Größe eines Cache-Eintrags messen und mit der vollständigen Railkit-Antwort vergleichen
+
+Hierfür wurde das Datenmodell \texttt{CouponValidationOfferPartInformation} eingeführt. Es ersetzt das bisher nur intern verwendete Modell \texttt{ExtractedOfferPartOfferValues} und erweitert dieses um die Felder \texttt{offerPartId} und \texttt{price}. Tabelle~\ref{tab:datenmodell} zeigt die Felder und deren Verwendung.
+
+Mit der Einführung des \texttt{CouponValidationOfferPartInformation} Datenmodells wird das bisher nur intern verwendete Modell ersetzt. \texttt{ExtractedOfferPartOfferValues} wird um die Felder \texttt{offerPartId} und \texttt{price} erweitert, um den neuen Anforderungen gewachsen zu sein. Tabelle~\ref{tab:datenmodell} zeigt die Felder und deren Verwendung.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{p{0.38\textwidth} p{0.52\textwidth}}
+        \hline
+        \textbf{Feld} & \textbf{Verwendung} \\
+        \hline
+        \texttt{offerPartId} & Identifikation des Angebotsteils (Offer-ID und Admission- bzw. Accommodation-ID) \\
+        \texttt{price} & Preis für die Abfrage der Angebotsteile \\
+        \texttt{isAnschlussBillet} & Anschlusstickets sind nie mit einem \ac{ip}-Coupon einlösbar \\
+        \texttt{travelClasses} & Prüfung von Reiseklasse und Klassenrang \\
+        \texttt{productCodes} & Ermittlung der Produktart \\
+        \texttt{departureDate} & Prüfung des gültigen Reisezeitraums \\
+        \texttt{departureStations}, \texttt{arrivalStations} & Prüfung von Abfahrts- und Ankunftsbahnhof sowie -land \\
+        \texttt{vehiclesCodes} & Prüfung des Zugtyps (z.\,B. IC, TGV, NJ) \\
+        \texttt{assignedTravelersCount} & Maximale Anzahl an Einlösungen pro Angebotsteil \\
+        \hline
+    \end{tabular}
+    \caption{Felder des Datenmodells \texttt{CouponValidationOfferPartInformation}}
+    \label{tab:datenmodell}
+\end{table}
+
+Das Modell, welches als Java-Record umgesetzt ist, bedient die Coupon-Validierung, sowie die Abfrage der \textit{Offer Parts}. Somit genügt ein Cache-Eintrag für zwei Anwendungsfälle, ohne Zugriff auf \textit{Railkit} zu benötigen. Zusätzlich lässt sich das Java-Record mit der Jackson Bibilothek als Json serialisieren und derialisieren. % TODO Quelle Jackson
+
+\subsubsection{Schlüsseldesign und Datenstruktur in Redis}
+\label{subsubsec:schluessel}
+
+Zur Zwischenspeicherung wird bereits in der \ac{zvs} Umgebung Redis als verteilter Cache verwendet (vgl. Abschnitt~\ref{subsec:redis}). Somit stehen alle eingeschriebenen Einträge allen Instanzen des Services zur Verfügung (vgl. Abschnitt~\ref{subsubsec:redis_distributed_caching}). Für die volle Funktionsfähigkeit, werden die in Tabelle ~\ref{tab:schluessel} dargestellten Caches angelegt.
+
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{p{0.28\textwidth} p{0.15\textwidth} p{0.45\textwidth}}
+        \hline
+        \textbf{Schlüssel-Präfix} & \textbf{Schlüssel} & \textbf{Wert} \\
+        \hline
+        \texttt{reiseip.offerPartInformation} & Offer-ID & Liste der \texttt{CouponValidationOfferPartInformation} aller Angebotsteile \\
+        \texttt{reiseip.offerId} & Order-ID & Liste der Offer-IDs, die in der \textit{Order} enthalten sind \\
+        \hline
+    \end{tabular}
+    \caption{Aufbau der Cache-Einträge in Redis}
+    \label{tab:schluessel}
+\end{table}
+
+Die eigentlichen Validierungsdaten sind zur entlastung des Caches nur im ersten Cache enthalten. Der zweite Cache dient als Zuordnung von einer \textit{Order} zu den enthaltenen \textit{Offers}. Möglich macht das \textit{Railkit}, durch das enthalten der \textit{Offer} als \textit{OfferItem} in der \textit{Order}, wodurch eine Order-ID in eine Offer-ID aufgelöst werden kann. Mit einem lesen der Angebotsteile über die Offer-ID, ist das validieren auch über die Order-ID möglich.
+
+Ein serialisiertes JSON der Angebotsteile lässt sich als einzelnen String-Wert speichern, weshalb als Redis-Datentyp ein string verwendet wird. % TODO in AbstractUuidKeyRedisRepository prüfen: Befehl (SET mit EX / opsForValue), genaues Schlüsselformat, Serialisierung
+Gegenüber dem Redis JSON-Datentyp entfällt damit ein der zusätzliche Speicher- und Parsing-Aufwand (vgl. Abschnitt~\ref{subsec:redis}). Ebenfalls wäre ein Redis Hash eine Alternative. Dieser legt jeden Angebotsteil als eigenes Feld ab, wodurch das Ergänzen einzelner Angebotsteile ohne vorheriges Leses des Eintrages möglich ist. Da die Angebotsteile einer \textit{Offer} jedoch in der Regel gemeinsam geschrieben, gelesen und nicht verändert werden, wurde der String-Typ gewählt.
+
+Beide Caches sind als Repositories angelegt und erben von der Basisklasse \texttt{AbstractUuidKeyRedisRepository} aus dem Projekt. Damit haben sie den den selben Aufbau wie die anderen Caches des Services.
+
+\subsubsection{Festlegung der Time-to-Live}
+\label{subsubsec:ttl_konzeption}
+
+Wie bereits in Abschnit~\ref{subsec:ttl} erwähnt, muss die \ac{ttl} auf die fachliche Lebensdauer der Angebote von \textit{Railkit} angepasst werden. Dabei ist eine \textit{Offer} zwei Stunden bei \textit{Railkit} gülitg. % TODO Quelle: keine öffentliche Quelle vorhanden -> als interne Information kennzeichnen (z.B. SBB-Confluence oder Angabe des Betreuers)
+Da nach Ablauf dieser Zeit das \textit{Offer} nicht buchbar ist, würde ein längeres Vorhalten der Daten lediglich Speicher belgen und zu inconsistent führen. Mit einer kürzeren \ac{ttl} würde es hingegen zu vermeidbaren Cache-Misses kommen, was zu erneuten Request an \textit{Railkit} führt.
+
+Die \ac{ttl} von zwei Stunden für Angebote ist bereits im Servive konfiguriert und wird daher verwendet. Durch die automatische Entfernen von abgelaufenen Einträgen wird eine dauerhafte Speicherbelegung vermieden.
+
+Durch die unveränderlichen Daten eines \textit{Offers} ist eine expliziete Invaliderung der Einträge nicht erforderlich. Ändern sich Angebotsdaten, erzeugt \textit{Railkit} selbstständig ein neues \textit{Offers} mit einer eigenen ID. Ein Konflikt wie in Abschnitt~\ref{subsec:caching} zwischen Cache und Quellsystem kann somit nicht auftreten.
+
+\subsubsection{Zeitpunkt der Cache-Befüllung}
+\label{subsubsec:befuellung}
+% nur als eine Iteration darstellen
+
+Ein zentraler Aspekt der Konzeption ist der Zeitpunkt andem der Cache befüllt wird. Er bestimmt, wie viele Einträge geschriebn werden und wie hoch die Trefferquote ist.
+
+Durch die in Abschnitt~\ref{subsec:prozess_mobile} erwähnten Unterschiede im Prozessablauf zwischen CASA und der Mobile-App, findet die Befüllung in der Angebotssuche statt. Während der Suche werden ohnehin alle Angebotsteile für die Valdierung abgerufen, weshalb kein weiterer \textit{Railkit} Aufruf notwendig ist. Der Cache steht damit allen Vertriebskanälen zur Verfügung. 
+
+Jedoch erhöht diese Variante die Anzahl der Cache-Einträge, da jedes Suchergebnis direkt gespeichert wird. Wie in Abschnitt~\ref{subsec:fachlicher_kontext} beschreiben, werden somit auch Einträge gespeichert, die zu keiner \textit{Order} führen. Dies steht im Kontrast zu der Anforderung, den Cache nicht unnötig zu belasten.
+
+Die Referenz von der Offer-ID auf die Order-ID wird nur über den CASA und Webshop Vertriebskanal benötigt. Darum ist ein ablegen im \texttt{Prebooking} Schritt ausreichend, da dieser nicht von der Mobile-App genutzt wird. Somit haben alle Vertriebskanäle die \texttt{Prebooking} aufrufen auch die Referenz zur verfügung.
+
+\paragraph{Ausschluss von Crawler-Anfragen}
+Um die Anzahl der Einträge zu begrenzen, werden Suchanfragen eines Crawlers nicht gecacht. Ein Crawler ist ein automatisierter Client, der in großem Umfang Suchanfragen stellt, deren Angebote nicht gebucht werden. Der Crawler ist über eine fest vereinbarte Kennung im Request-Header (\textit{Requester-Info}) eindeutig identifizierbar. Anfragen mit dieser Kennung werden beim Caching übersprungen. % TODO ggf. Quelle: interne Absprache zur Requester-Info des Crawlers
+
+
+% TODO Abbildung: Gesamtablauf Angebotssuche -> Prebooking -> Validierung mit Kennzeichnung, wann der Cache geschrieben und gelesen wird
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=\textwidth]{img/befuellung_cache.png}
+%     \caption{Zeitpunkte der Cache-Befüllung im Buchungsablauf}
+%     \label{fig:befuellung_cache}
+% \end{figure}
+
+% --------------------------------------------
+% 4.3 Umsetzung
+% --------------------------------------------
+\subsection{Umsetzung}
+\label{subsec:umsetzung}
+
+\subsubsection{Persistenzschicht}
+\label{subsubsec:persistenz}
+
+In der Persistenzschicht aus dem Modul \texttt{zvs-reise-ip-commons} enthält das Datenmodell, sowie zwei neue Repositories als Erweiterung des bestehenden \texttt{CachingService}:
+
+\begin{itemize}
+    \item \texttt{RedisCacheOfferPartsRepository} speichert die Angebotsteile (\textit{Offer Parts}) unter der Offer-ID.
+    \item \texttt{RedisOfferIdRepository} speichert die Offer-IDs unter der Order-ID.
+    \item Der \texttt{CachingService} bildet die zentrale Schnittstelle zu allen Caches des Services. Er wurde mit Methoden zum Schreiben und Lesen der \textit{OfferParts} sowie der Offer-IDs erweitert.
+\end{itemize}
+
+Bei einem Cache-Miss geben die Methoden eine leere Liste anstatt von \texttt{null} zurück. Das ermöglicht das einheitliche prüfen auf einen Cache-Hit für die aufrufenden Komponenten.
+
+
+
+
+
+
+\subsubsection{Extraktion der validierungsrelevanten Daten}
+\label{subsubsec:extraktion}
+
+Für die Extraktion der Werte eines Angebotsteils wird die besthende Logik aus dem \texttt{OfferPartOfferValuesService} erweitert. Neben der Ermittlung von Bahnhöfen, Zugtypen, Abfahrtsdatum und Anzahl der Reisenden kommt die Ermittlung der \texttt{offerPartId} und des Preises. 
+
+% irrelevant
+% Im Zuge der zweiten Iteration wurde die Schnittstelle dieser Methode angepasst. Statt des kombinierten Objekts aus \textit{Offer} und Reiseroute nimmt sie beide Bestandteile nun getrennt entgegen. Dadurch ist die Extraktion von der Herkunft der Daten entkoppelt und kann sowohl mit den Daten der Angebotssuche als auch mit einzeln abgerufenen \textit{Offers} verwendet werden.
+
+Die neue Komponente \texttt{CouponValidationInfoExtractor} ermittelt alle Angebotsteile eines \textit{Offers}, die über eine Preisangabe verfügen, und erzeugt für jeden dieser Angebotsteile einen Cache-Eintrag. Zusätzlich liest sie aus einer angelegten \textit{Order} die IDs der enthaltenen Positionen aus.
+
+Mithilfe der neuen Komponente \texttt{CouponValidationInfoExtractor} werden alle Angebotsteile eines \textit{Offers} ermittelt. Voraussetzung dafür ist eine Preiseangabe, damit der Cache-Eintrag erezugt wird. Ebenso entält die Komponente die Funktionalität für das auslesen der IDs einer angelegten \textit{Order}. % TODO prüfen und verstehen
+
+\subsubsection{Befüllung des Caches}
+\label{subsubsec:befuellung_umsetzung}
+
+Das Befüllen der Angebotsteile erfolgt im \texttt{RailkitShoppingService}. Nachdem die Informationen der \textit{Offer} geladen wurden, werden mithilfe des \texttt{CouponValidationInfoExtractor} die Angebotsteile erstell und mit der Offer-ID als Key gespeichert. Vor dem extrahieren der Informationen wird jedoch geprüft, ob die Anfrage vom Crawler stammt, In diesem Fall wird das Caching übersprungen.
+
+Die Zuordnung der Order-ID zu den Offer-IDs wird im \texttt{RailkitBookingService} gespeichert, unmittelbar nachdem \textit{Railkit} die \textit{Order} angelegt hat.
+
+% TODO optional: kurzes Listing der Methode cacheOfferParts / isCacheable einfügen
+
+\subsubsection{Anpassung der Abfrage von Angebotsteilen}
+\label{subsubsec:offerparts}
+Für die Abfrage der Angebotsteile wird das Cache-Aside-Muster im \texttt{OfferPartService} verwendet:
+
+\begin{itemize}
+    \item \textbf{Abfrage per Offer-ID:} Liegen Angebotsteile im Cache vor, werden daraus die Angebotsteil-ID und der Preis zurückgegeben. Andernfalls wird das \textit{Offer} von \textit{Railkit} geladen.
+    \item \textbf{Abfrage per Order-ID:} Mithilfe des Referenz-Cache werden die Offer-IDs zu der \textit{Order} ermittelt und die Angebotsteile aus dem Cache der Offer-ID gelesen. Wenn jedoch keine Angebotsteile gefunden werden, wird die \textit{Order} von \textit{Railkit} geladen.
+\end{itemize}
+
+
+\subsubsection{Anpassung der Coupon-Validierung}
+\label{subsubsec:validierung}
+
+Die Coupon-Validierung im \texttt{DiscountOfferValidationService} wurde nach dem Cache-Aside-Muster aufgebaut. Der Ablauf gestaltet sich wie folgt:
+
+Auch die Coupon-Validierung im \texttt{DiscountOfferValidationService} wurde nachdem Cache-Aside-Muster wie folgt konstruiert:
+
+\begin{enumerate}
+    \item Aus den OfferPart-IDs der Anfrage werden die zugehörigen Offer-IDs ermittelt.
+    \item Für jede Offer-ID wird der Cache abgefragt. Bei einem Treffer werden die Angebotsteile übernommen. Bei einem Fehlzugriff werden \textit{Offer} und Reiseroute wie bisher von \textit{Railkit} geladen.
+    \item Für jeden Angebotsteil, der nicht aus dem Cache stammt, werden die validierungsrelevanten Werte aus der Antwort von \textit{Railkit} extrahiert und für das spätere Speichern gesammelt.
+    \item Jedes Angebotsteil wird gegen die Regeln des jeweiligen \ac{ip}-Coupons validiert.
+    \item Abschließend werden die neu extrahierten Angebotsteile in den Cache geschrieben, sodass folgende Validierungen ohne Zugriff auf \textit{Railkit} erfolgen können.
+\end{enumerate}
+
+Die Validierungsregeln, sowie das bearbeiten vom \textit{Railkit} Objekten wurde nicht verändert. Damit kann sichergestellt werden, dass das Ergebnis unabhänig von der Datenherkunft ist
+
+
+
+

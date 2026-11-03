@@ -1,0 +1,160 @@
+\section{Technische und fachliche Grundlagen}
+\label{sec:grundlagen}
+
+Dieses Kapitel geht auf die technischen und fachlichen Grundlagen ein, die für das Verständnis der vorliegenden Belegarbeit von Bedeutung sind. Es vermittelt das notwendige Kontextwisen über die Systemarchitektur der Schweizer Bundesbahnen (\ac{sbb}). Desweiteren vermittelt es das Wissen über die eingesetzten Microservice- und Caching-Konzepte sowie den domänenspezifischen Besonderheiten der internationalen Reisen und der Coupon-Validierung.
+
+% --------------------------
+% Architektur: Schichten, Service, Drittanbieter
+% --------------------------
+\subsection{Grundlegende Architektur}
+\label{subsec:architektur}
+
+Um allen Reisenden der \ac{sbb} den Zugriff auf Ihre entsprechenden Fahrscheine zu gewährleisten, betreibt die \ac{sbb} ein Multi-Kanal-Vertriebssystem. Fahrscheine können über den Webshop, die Mobile-App (SBB Mobile), Fahrkartenautomaten sowie über einen Schalter, als mögliche Vertriebskanäle, erworben werden. Darüber hinaus ist das System darauf ausgelegt externe Buchungsanfragen von Partnerunternehmen für beispielweise grenzüberschreitende Reisen (z.B. von Berlin nach Bern) zu verarbeiten. Alle eingehenden Anfragen erfordern dabei eine performante und konsistente Verarbeitung im Hintergrund, die sich keine Fehler erlaubt.
+
+
+\subsubsection{Zentrales Vertriebssystem (ZVS)}
+
+Das sogenannte \ac{zvs} ist die Kernkomponente der \ac{sbb}-Vertriebsinfrastruktur und verarbeiten alle Buchungs- und Tarifanfragen kanalübergreifend. Es dient als vorgeschalteter Aggregator und entkoppelt die Benutzeroberflächen von den dahinterligenden Services. Über Service-Schnittstellen kann das System auch als Schnittstelle für Dritte verwednet werden. Spezialisierte Adapter-Gateways binden wiederum das \ac{zvs} an externe Drittsysteme an, wie zum Beispiel \textit{Railkit} für die Abwicklung internationaler Reise oder \textit{NOVA} für den nationalen Schweizer Tarifverbund. % SBB Confluence
+
+Mithilfe von dedidierten Orchestrierungskomponenten werden verteilte und systemübergreifende Transaktion innerhalb der \ac{zvs}-Anwendungen koordiniert. Es leitet die Aufrufe geziehlt an das vorgesehende Subsystem weiter. Damit das System nachvollziehbar ist, existiert innerhalb des \ac{zvs} eine zentrale Protokollierungskomponente (Kommlog). Dieses Tool ermöglicht unteranderem eine detaillierte Fehlersuche, indem es sämtliche interne API-Aufrufe zwischen den Services sowie den ausgehenden Aufrugen zu externen Drittsystemen aufzeichnet, speichert und aggregiert.
+% TODO Bild und erklärung der Architektur der SBB (Confluence)
+
+
+% above umgeschrieben
+
+
+\subsubsection{Microservice-Architektur}
+
+Zur Bewältigung der hohen Anfrage- und Datenmenge setzt die \ac{sbb} auf eine Architektur, die aus verteilten Microservices besteht. Mithilfe dieses Architekturmusters wird die unabhänige Entwicklung, Skalierung und Bereitstellung einzelner Fachdomänen durch autonome Entwicklungsteams ermöglicht. Hierbei kann jedes Team eigenständig seine eignen Technologien wählen, ohne das Seiteneffekte auf benachbarte Services verursacht werden.% Richards Kap 18. Style Specifics -> Data isolation
+
+Eine Microservice-Architektur zeichnet sich durch feingranulare und stark fokussierte Services aus. Diese sind im Vergleich zu monolithischen Systemen oder klassischen verteilten Architekturen deutlich kleiner geschnitten. Daabei ist jeder Service eigenständig lauffähig und kann isoliert bereitgestellt werden, wodurch Ressourcenengpässe gezielt adressiert werden können. Der architekturelle Trade-off bezüglich der Systemperformance findet sich in der Kommunikation über Netzwerk-Grenzen hinweg wieder. Inklusive Authentifizierung und autoriesierung erfordert ein solcher Netzwerkaufruf messbar mehr Zeit, als ein lokaler Methodenaufruf innerhalb eines Prozesses. % Richards Kap.18. Topology
+
+Microservices gelten als "cloud-native", da sie moderne Containeriesierungstechnologien wie Kubernetes nutzen. Sie lassen sich flexibel als Container-Instnazen oder als serverlose Funktionen betreiben % Richards Kap 18. Cloud-Aspekt
+Jedoch ist bei der Architekturgestaltung darauf zu achten, dass der Granularitätsgrad der einzelnen Services nicht zu klein wird (Anti-Pattern der Nanoservices). Das Problem aus zu feingranularen Services liegt in der der übermäßigen Inter-Service-Kommunikationaufwand über das Netzwerk, wodurch sich die Systemlatenz spürbar verschlechtert und komplexe Abhängigkeitsketten erzeugt. % Richards Kap 18 Common Risks
+
+
+Ein solcher Service existiert innerhalb des \ac{zvs} für die Abwicklung internationaler Buchungen unter dem Namen \texttt{zvs-reise-ip}. Dieser Service kapselt unter anderem den Untersuchungsgegenstand dieser Arbeit, der Funktionalität der \ac{ip}-Coupon-Validierung, ab. Aufgrund der Kapselung dieser Logik in einem zentralen System, steht die Coupon-Validierung allen Vertriebskanälen einheitlich zur Verfügung. Somit wird die Komplexität des Gesamtsystems reduziert und entkopplungsfeindliche Abhängigkeiten zu anderen Services verhindert.
+
+
+% --------------------------------------------
+% Caching: Definition und Einordnung
+% --------------------------------------------
+\subsection{Caching}
+\label{subsec:caching}
+
+Caching ist ein Verfahren, welches zur temporären Zwischenspeicherung von Daten in einem schnellen Speichermedium ist. Mithilfe dessen können zukünftige Zugriffe auf dieselben Daten beschleunigt werden. Reduntante Datenabfragen an langsamere Folgesysteme oder andere externe Schnittstellen werden abgefangen und direkt aus dem Cache beantwortet. Dadurch lassen sich Netzwerkaufrufe einsparen, nachgelagerte Systeme vor überlastung schützen und die Systemantwortzeiten reduzieren. % AWS Caching
+
+Da schnelle Speichermedien im Vergleich zu externen Systemen oder persistenten Datenbanken kapazitiv begrenzt sind, erforder Caching eine gezielte Auswah der zu speichernden Nutzdaten. Der kostenintensive Speicherplatz sollte nicht durch veraltete oder ungenutzte Datensätze blockiert werden. Aus diesem Grund werden gecachte Daten meist mit bestimmten Entwertungs- und Ablaufmechanismen versehen (siehe Abschnitt ~\ref{subsec:ttl}).% AWS Caching + T S429
+
+\subsubsection{Nutzzen und Trade-offs beim Caching}
+
+Ein weiterer Vortail von Caching neben der Latenzoptimierung ist die erhöhte Systemresilienz. So können im Fall eines temporären Ausfalls einer Anbindung oder Drittsystems unter Umständen Anfragen weiterhin aus dem Cache bedient werden. Dabei ist ein zentraler architektureller Trade-off beim Einsatz Caching das Problem der Datenkonsistenz. Ändern sich die Primärdaten im Quellsystem, während die Daten im Cache noch veraltet vorliegen, entstehen Inkompatibilitäts- und Inkonsistenzprobleme. Um dies zu vermeiden, müssen Daten durch Invalidierungsstrategien synchron gehalten werden, womit wiederum Netzwerkbandbreite und Rechenleistung beansprucht wird. Oder aber die Daten müssen unveränderlich sein um die Probleme vorzubeugen. % T S31
+
+Damit ein Cache seinen betriebswirtschaftlichen und technischen Nutzen entfaltet, muss eine ausreichend hohe Wiederverwendungsrate der Daten vorliegen. Wenn jedoch gecachte Daten nicht erneut abgefragt werden, führt der Cache lediglich zu zusätzlichen Speicherkosten und einem Verarbeitungs-Oberhead ohne einen Performancegewinn. Somit gilt es stets eine abwägung durchzuführen, ob die Performancegewinne die zusätzlichen Speicherkosten und die Komplexität der Cache-Verwaltung rechtfertigen. % T S31
+
+\subsubsection{Caching-Ebenen in verteilten Systemen}
+
+Caching kann auf verschiedenen Ebenen einer IT-Architektur eingesetzt werden:
+\begin{itemize}
+    \item \textbf{Client-seitiges Caching:} Speicherung von Ressourcen direkt im Webbrowser oder der mobilen App zur Reduzierung von HTTP-Anfragen. % AWS Caching
+    \item \textbf{Netzwerk- und Infrastruktur-Caching:} Beispielsweise auf DNS-Servern zur beschleunigten Namensauflösung oder in Content Delivery Networks (CDNs). % AWS Caching
+    \item \textbf{Anwendungs- und Server-seitiges Caching:} Einsatz von In-Memory-Key-Value-Speichern oder lokalen Caches zur Beschleunigung von Datenzugriffen und Geschäftslogiken. % AWS Caching
+    \item \textbf{Datenbank-Caching:} Zwischenspeicherung häufig wiederkehrender und rechenintensiver Abfrageergebnisse zur Reduzierung der Datenbanklast und Latenz. % AWS Caching
+\end{itemize}
+
+\subsection{Haltedauer, Ablaufzeit und Time-to-Live (TTL)}
+\label{subsec:ttl}
+
+Mithilfe von Datensätzten, die mit einer spezifischen Ablaufzeit versehen sind, kann das Überlaufen des Cache-Speichers verhindert und veraltete Daten automatisch entfernt werden. Die \ac{ttl} definiert dabei die Zeitspanne, für die ein Eintrag im Cache als gültig betrachtet wird. Mit einer Festlegung der \ac{ttl} stellt einen architekturellen Zielkonflikt zwischen Speicherbelegung, Aktualitätsgarantie und Cache-Trefferquote dar, da z.B. ein abgelaufener Datensatz nicht mehr im Cache erreicht werden kann.% Fundamentals of Software Architekture Kap2 Analyzing Trade-Offs
+
+Im Kontext der \ac{sbb}-Infrastruktur muss die \ac{ttl} explizit auf die fachliche Lebensdauer der bereitgestellten Angebote (\textit{Offers}) und Buchungen \textit{Orders} von \textit{Railkit} abgestimmte werden. Eine längere Caching-Dauer, als die Gültigkeit im Quellsystem, führt zu schwerwiegenden Konsistenzfehlern. In diesem Fall würde das System der \ac{sbb} probieren, veraltete Angebote aus dem Cache zu verarbeiten, die auf Seiten von \textit{Railkit} bereits abgelaufen oder ungültig sind. % Tannenbaum Kap 7.2.3 Continous consistency S 410-411
+Dies hätte zur Folge, dass Buchungstransaktionen bei \textit{Railkit} fehlschlagen, die die entsprechenden Referenzen dort unbekannt sind. 
+
+\subsection{In-Memory-Cache: Redis}
+\label{subsec:redis}
+
+Eine weit verbreitete Technologie zur Implementierung von In-Memory-Cache in einem verteilten System ist Redis. Da Redis alle Daten direkt im Hauptspeicher (\ac{ram}) hält, können extrem niedrige Lese- und Schreiblatenzen im Sub-Millisekundenbereich ermöglicht werden. Aus diesem Grund wird Redis primär genutzt, wenn geschwindigkeitskritische Lesezugriffe von langsameren Datanbanksystemen oder externen Webservices effizient abzupuffern.
+
+Redis strukturiert die Daten primär nach dem Key-Value-Prinzip, wodurch die Daten anhand eines eindeutigen Schlüssel über standardisierte Befehle (wie \texttt{GET} und \texttt{SET}) abgerufen werden können. % Redis quick-start
+Technisch versteht sich Redis als "Data Structure Server", der für Andwendungsfälle von Caching über Queuing bis hin zu Event Processing konzipiert ist. Dafür gibt es Kern-Datentypen wie Strings (Byte-Sequenzen), Hashes (Feld-Wert-Paare), Listen, JSON sowie Sorted Sets. % Redis Data Types
+Die Datenstrukturen besitzten jeweils einen anderen Speicher- und Rechenaufwand, der bei der Auswahl zu berücksichtigt werden muss. Komplexe Formate wie JSON sind dabei im Vergleich zu einfachen Strings oder Hashes mit einem höheren Speicherbedarf und Parsing-Overhead versehen. Hingegen sind plain String die speichereffizienteste Variante die Redis bietet. % Redis copare data types
+
+\subsubsection{Lokales versus verteiltes Caching in Microservice-Architekturen}
+\label{subsubsec:redis_distributed_caching}
+
+Während ein lokaler Cache (In-Memory-Cache) exklusiv innerhalb des Speichers einer einzelnen Anwendungsinstanz vorgehalten wird, speichert ein verteiltes Caching-System Daten über mehrere Netzwerkknoten hinweg in einem zentralen Datenpool. In einer Microservice-Architektur führt lokales Caching bei skalierten Services schnell zu Inkonsistenzen: Aktualisiert eine Instanz ihren lokalen Speicher, verbleiben die übrigen Instanzen auf veralteten Zuständen. Zudem führt dies zu redundanten Datenabfragen an nachgelagerte Schnittstellen, da jede Instanz den Cache unabhängig voneinander aufbauen muss. % Redis Distributed Caching
+
+Der Einsatz eines verteilten Caches wie Redis bietet für Microservices wesentliche Vorteile hinsichtlich Datenkonsistenz und Cache-Hit-Rate, da alle Service-Instanzen auf denselben Datenbestand zugreifen. Einmalig abgerufene oder berechnete Daten stehen allen Konsumenten unverzüglich zur Verfügung, was die Last auf externe Systeme minimiert. % Redis Distributed Caching
+
+Darüber hinaus erhöht verteiltes Caching die Ausfallsicherheit (High Availability): Beim Ausfall oder Neustart einzelner Anwendungsinstanzen bleiben die gecachten Daten im zentralen Cache erhalten. Durch die Aufteilung des Datenraumes (Keyspace) über mehrere Master-Knoten lässt sich das Gesamtsystem Zudem horizontal skalieren. % Redis Distributed Caching
+
+
+\subsubsection{Speicherbegrenzung und Verdrängungsstrategien}
+\label{subsubsec:redis_eviction}
+
+In der Konfiguration von Redis wird über den \texttt{maxmemory} Wert festgelegt, mit welcher Menge an Arbeitsspeicher der Datenbank-Prozess maximal arbeiten darf. Um jedoch ein überlauf über dieses Limit zu verhindern, greifen im Notfall verschiedene Verdrängungsregeln (Eviction Policy). Diese sind in der lage automatisiert Speicherplatz für neue Schreiboperationen freizugeben. % Redis eviction
+
+Eine solche Möglichkeit zur Speicherbereinigung bei Redis, ist das versehen eines Schlüssels mit dem Befehl \texttt{EXPIRE}, mit dem eine spezifische Ablaufzeit festgelegt wird. Nach Ablauf des Timeouts wird der entsprechende Schlüssel, wie bei \ac{ttl} üblich, gelöscht oder für den Lesezugirff gesperrt. % Redis Expire
+
+Reicht der verfügbare Speicherplatz trotz TTL-Verwaltung nicht aus oder sind Daten ohne Ablaufdatum gespeichert, wendet Redis zur Bereinigung definierte Algorithmen an:
+
+Falls der verfügbare Speicherplatz trotz \ac{ttl}-Verwaltung nicht ausreichend ist, oder Daten ohne Ablaufdatum gespeichert werden, benutzt Redis definierte Algorithmen zur Bereinigung an:
+
+\begin{itemize}
+    \item \textbf{\ac{lru} (Least Recently Used):} Bei dieser Strategie werden diejenigen Schlüssel zuerst verdrängt, welche am längsten keinen zugriff mehr hatten. Die Entscheidung basiert dabei auf dme Zeitstempel des letztes Lese- oder Schreibzugrifs, wodurch häufig angefragte Daten ("Hot Data") bevorzugt im Speicher bleiben. Hinzu kommt die Festlegung über Modifikatioren, ob diese Regel auf den gesamten Keyspace (\texttt{allkeys-lru}) oder nur auf Schlüssel mit einer schon gesetzten \ac{ttl}(\texttt{volatile-lru}) angewendet wird. % Redis eviction
+    
+    \item \textbf{\ac{lfu} (Least Frequently Used):} Bei diesm ansatz hingegen verdrängt Redis die Schlüssel mit der geringsten Zugriffshäufigkeit. Dafür wird ein interner Frequenzzähler genutzt. Dieser Wert sinkt, sobald ein Wert über einen längeren Zeitraum nicht angefragt wird. Somit kan effektiv verhindert werden, dass kurzzeitige Zugriffspitzen, von seltenen Daten, häufig genutzte Einträge aus dem Cache verdrängen. wie auch schon beim \ac{lru} stehen hier die Modifikatoren für die Variante über den gesamten Keyspace (\texttt{allkeys-lfu}), aber auch nur für \ac{ttl}-behaftete Schlüssel (\texttt{volatile-lfu}) zur verfügung. % Redis eviction
+\end{itemize}
+
+\subsection{Performance-Begriffe und Messgrößen}
+\label{subsec:performance}
+
+Zur präzisen Bewertung von Systemoptimierungen müssen grundlegende Performance-Begriffe abgegrenzt werden:
+\begin{itemize}
+    \item \textbf{Response Time (Antwortzeit):} Entspricht der Zeit, der aus Client Sicht wahrgenommenen Gesamtdauer von der Absendung des Request bis zum volständigen Empfang der Response. Sie setzt sich dabei aus der reinen Verarbeitungszeit des Services, den Wartezeiten in System-Warteschlangen sowie der Netzwerklatenzen zusammen. % Kleppmann, Kap. 1 „Reliable, Scalable, and Maintainable Applications“, Abschnitt: Scalability $\rightarrow$ „Describing Performance“ 
+    \item \textbf{Latenz:} Entspricht der reinen Verzögerungszeit, die ein Signal oder ein Paket durch ein Netzwerk hindurch benötigt. Ebenso entspricht der Begriff auch der Wartezeit, die ein Request in Warteschlangen verbringt, bevor die eigentliche Verarbeitung beginnt.% Kleppmann, Kap. 1 „Reliable, Scalable, and Maintainable Applications“, Abschnitt: Scalability $\rightarrow$ „Describing Performance“ 
+    \item \textbf{Performance (Durchsatz \& Effizienz):} Entspricht der Gesamteffizient der Datenverarbeitung in einem System. Caching kann dabei ein Schlüsselelement zur Performance verbesserung sein.% Richards & Ford, Kap. 15 „Event-Driven Architecture“, Abschnitt: „Asynchronous Capabilities
+    \item \textbf{Responsiveness (Reaktionsfähigkeit):} Entspricht der Zeitspanne bis zur ersten Rückmeldung des Systems an den Nutzer, wie eine asynchrone Eingangsbestätigung. % Richards & Ford, Kap. 15 „Event-Driven Architecture“, Abschnitt: „Asynchronous Capabilities
+\end{itemize}
+
+\subsubsection{Spezifische Messgrößen für die Caching-Evaluation}
+
+Um den Erfolg einer Caching-Implementierung quantitativ zu bewerten, können folgende Metriken herangezogen:
+
+\begin{itemize}
+    \item \textbf{Hit Rate (Trefferquote):} Der prozentuale Anteil der Anfragen, die direkt aus dem Cache bedient werden können, ohne das externe Zielsystem aufzurufen. Sie ist der primäre Indikator für die Effektivität der Caching-Strategie. % van Steen & Tanenbaum, Kap. 7, Abschnitt 7.4.2 „Client-initiated replicas“, S. 429; Kleppmann, Kap. 1, Abschnitt: Scalability $\rightarrow$ „Describing Load“
+    \item \textbf{Anzahl externer Requests:} Mit einer hohen Hit-Rate sinkt die Anzahl an externen Aufrufen, wodurch sowohl die Netzwerkinfrastruktur sowie das Drittsystem entlastet wird. Da externe Aufrufe aufgrund von geografischen und netzwertechnischen Distanzen bedeutent langsamer sind  als lokale, sinkt zusätzlich die Gesamtlatenz. % van Steen & Tanenbaum, Kap. 7, Abschnitt 7.6 „CDN-Metriken“, S. 454–455 % van Steen & Tanenbaum, Kap. 1, Abschnitt 1.2.6 „Geographical scalability“, S. 27
+\end{itemize}
+
+
+Um die Performance korrekt evaluiren zu können, muss stets auch der Overhead für das initiale Schreiben in den Cache berücksichtigt werden. Dieser Schreibaufwand lässt sich dann ins Verhältnis zur erwarteten Lesehäufigkeit setzten. Anhand dieses Verhätnisses ist es möglich die Effizienzsteigerung des Systems festzustellen. Jedoch muss in der späteren Betrachtung bedacht werden, dass weniger Fahrten mit einem \ac{ip}-Coupon bezahlt werden, als Angebote in den Cache geschrieben werden.
+
+
+\subsection{Fachlicher Kontext der Domain}
+\label{subsec:fachlicher_kontext}
+
+Für das Gesamtverständnis der Arbeit ist die Einordnung der fachlichen Domäne essenziell. Dies umfasst die Integration mit dem Drittanbieter \texttt{Railkit}, dem Unterschied zwischen \textit{Orders} und \textit{Offers} ebenso wie ein überblick über \ac{ip}-Coupons.
+
+
+\subsubsection{Railkit}
+
+\textit{Railkit} ist eine Plattform, welche als Schnittstelle für den internationalen Bahnverkehr fungiert. Die von der \textit{Amadeus IT Group} entwickelten Plattform hat international mehr als 90 Bahngesellschaften angebunden. Amadeus entwickelte ursprünglich ein Flugreservierungssystem, erweiterte das Angebot jedoch auch auf weitere Vertriebslösungen. % wiki Amadeus IT Group % Amadeus
+
+
+Mithilfe des Systems, ist es für die \ac{sbb} möglich, grenzüberschreitende Zugreisen zusammenzustellen und anbinden zu können. Hierfür zerlegt \textit{Railkit} internationale Fahrtwünsche in Teilstrecken der jeweiligen nationalen Bahngesellschaften (z.B. Deutsche Bahn) und ermittelt die zugehörigen Fahrpläne und Tarife.
+
+\subsubsection{Offers versus Orders}
+
+Im Buchungsprozess unterscheidet \textit{Railkit} strikt zwischen Fachobjekten:
+\begin{itemize}
+    \item \textbf{Offer (Angebot):} Stellt ein Angebot, für eine gewählte Verbindung von Ort A nach Ort B für eine bestimmte Verbindung dar. Bei einer Beispielanfrage im Webshop werden mehrere \textit{Offers} von dem System zurück gegeben (verschiedene Abfahrtszeiten oder Verbindungen).
+    \item \textbf{Order (Buchung/Auftrag):}  Wenn ein Kunde ein konkretes \textit{Offer} in den Warenkorb legt, wird eine Kapazitätsreservierung im Zielsystem vorgenommen. Damit wird von \textit{Railkit} für das \textit{Offer} eine \textit{Order} mit Kapazitätsreservierung angelegt. Mit dem erfolgreichen Abschluss des Zahlungsverfahrens entsteht aus der Buchung erst das eigentliche Zugticket.
+\end{itemize}
+
+In der Praxis übersteigt das Volumen erzeugter \textit{Offers} das der tatsächlichen \textit{Orders} um ein Vielfaches, da viele Suchanfragen nicht in einem Kauf münden.
+
+\subsubsection{IP-Coupon}
+
+Ein \ac{ip}-Coupon ist ein Aktions- oder Rabattcode, der explizit nur für internationale Zugverbindungen eingelöst werden kann.
+
+Die Validierung eines solchen Coupons überprüft jeweils die Gültigkeit und den Aktivierungsstatus. Aber auch die Anwendbarkeit auf die gewählte Internationale Strecke. Zum validieren wird der Coupon-Code mit einer zentralen Stammdatenbank zum Zeitpunkt des Einlösens abgeglichen.% TODO prüfen ob das korrekt ist

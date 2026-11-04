@@ -1,7 +1,7 @@
 \section{Untersuchung des bestehenden Validierungsprozesses}
 \label{sec:untersuchung}
 
-Dieses Kapitel beleuchtet dne bestehenden Ablauf der \ac{ip}-Coupon-Validierung mit dem Ziel, reduntante Anfragen an \textit{Ralkit} heraus zu stellen. Der Vertriebskanal, über den die Validierung und Abwicklung läuft, ist dabei zu berücksichtigen. So ruft die Mobile-App, im Vergleich zu zum Beispiel CASA, einzelne Schnittstellen nicht auf. Diese Unterschiede müssen bei der Wahl des Zeitpunktes für das zwischenspeichern der Daten mit bedacht werden (siehe Abschnitt~\ref{subsubsec:befuellung}.
+Dieses Kapitel beleuchtet den bestehenden Ablauf der \ac{ip}-Coupon-Validierung mit dem Ziel, redundante Anfragen an \textit{Railkit} herauszustellen. Der Vertriebskanal, über den die Validierung und Abwicklung läuft, ist dabei zu berücksichtigen. So ruft die Mobile-App, im Vergleich zu beispielsweise CASA, einzelne Schnittstellen nicht auf. Diese Unterschiede müssen bei der Wahl des Zeitpunktes für das Zwischenspeichern der Daten mit bedacht werden (siehe Abschnitt~\ref{subsubsec:befuellung}).
 
 Im Folgenden wird zunächst der Ablauf am Beispiel von CASA beschrieben. Anschließend werden die Abweichungen der Mobile-App erläutert und die beteiligten Funktionen des \texttt{DiscountOfferValidationController} im Detail betrachtet.
 
@@ -22,7 +22,7 @@ Der hier auf das Wesentliche vereinfachte Prozess besteht aus vier aufeinanderfo
 
 \paragraph{CREATETRIPOFFERS}
 
-Der Prozess beginnt mit der \texttt{CREATETRIPOFFERS} Operation, die mit der vom Kunden getätigten eingabe der Strecke beginnt. Daraufhin werden in diesem Schritt die verschiedenen Angebote für eine bestimmte Route gesammelt. Abbildung~\ref{fig_suche_sbb} zeigt beispielhaft das Ergebnis für eine solche Suche. % TODO screenshot von sbb.ch (trip offers sind doch, wenn schon eine Route feststeht oder?)
+Der Prozess beginnt mit der \texttt{CREATETRIPOFFERS}-Operation, die mit der vom Kunden getätigten Eingabe der Strecke beginnt. Daraufhin werden in diesem Schritt die verschiedenen Angebote für eine bestimmte Route gesammelt. Abbildung~\ref{fig:suche_sbb} zeigt beispielhaft das Ergebnis für eine solche Suche. % TODO screenshot von sbb.ch (trip offers sind doch, wenn schon eine Route feststeht oder?)
 
 % \begin{figure}[htbp]
 %     \centering
@@ -31,10 +31,10 @@ Der Prozess beginnt mit der \texttt{CREATETRIPOFFERS} Operation, die mit der vom
 %     \label{fig:suche_sbb}
 % \end{figure}
 
-Für diesen Prozessschritt werden drei Anfragen an \textit{Railkit} gesendet. Die erste für Informationen zur Reiseroute (\textit{Itinerary}), eine für die verfügbaren Reiseangebote (\textit{Travel Offers}) und zum Schluss noch eine Anfrage für Detailinformationen zu den Angeboten. Damit liegen bereits nach diesem Prozesschrit alle Informationen vor, die es für eine spätere Coupon-Validierung braucht.
+Für diesen Prozessschritt werden drei Anfragen an \textit{Railkit} gesendet. Die erste Anfrage ruft Informationen zur Reiseroute (\textit{Itinerary}) ab, eine weitere die verfügbaren Reiseangebote (\textit{Travel Offers}) und zum Schluss noch eine Anfrage Detailinformationen zu den Angeboten. Damit liegen bereits nach diesem Prozessschritt alle Informationen vor, die es für eine spätere Coupon-Validierung braucht.
 
 \paragraph{CREATEPREBOOKINGV2}
-Mit dem Hinzufügen des Tickets in dne Warenkorb, erfolgt die Operation \texttt{CREATEPREBOOKINGV2}, wobei fünf Anfragen an \textit{Railkit} gesendet werden:
+Mit dem Hinzufügen des Tickets in den Warenkorb erfolgt die Operation \texttt{CREATEPREBOOKINGV2}, wobei fünf Anfragen an \textit{Railkit} gesendet werden:
 \begin{enumerate}
     \item Abfrage des finalen \textit{Offers},
     \item Abfrage der zugehörigen Reiseroute,
@@ -46,13 +46,13 @@ Mit dem Hinzufügen des Tickets in dne Warenkorb, erfolgt die Operation \texttt{
 Bis zu diesem Punkt entspricht der Ablauf dem Standardprozess, der für alle internationalen Reisen, unabhängig vom gewählten Zahlungsmittel, gilt.
 
 \paragraph{GETOFFERPARTSBYORDERID}
-Wählt der Kunde als Zahlungsmittel einen Coupon für seine internationale Reise aus, gelangen die nächsten Operationen an den \texttt{DiscountOfferValidationController}. Dieser stellt daraufhin in der Operation \texttt{GEROFFERPARTSBYORDERID} weitere Anfragen an \textit{Railkit} und gibt die Angebotsteile (\textit{Offer Parts}) zurück.
+Wählt der Kunde als Zahlungsmittel einen Coupon für seine internationale Reise aus, gelangen die nächsten Operationen an den \texttt{DiscountOfferValidationController}. Dieser stellt daraufhin in der Operation \texttt{GETOFFERPARTSBYORDERID} weitere Anfragen an \textit{Railkit} und gibt die Angebotsteile (\textit{Offer Parts}) zurück.
 
-Ein Angebotsteil versteht sich als eigenständig bepreistes Bestandteil eines \textit{Offer}, wie beispielweise eine Sitzplatzreservierung oder eine einzelne Zugverbindung. Mit einem Umstieg besteht das \textit{Offer} somit aus zwei einzeln bepreisten Angebotsteilen.
+Ein Angebotsteil versteht sich als eigenständig bepreister Bestandteil eines \textit{Offers}, wie beispielsweise eine Sitzplatzreservierung oder eine einzelne Zugverbindung. Mit einem Umstieg besteht das \textit{Offer} somit aus zwei einzeln bepreisten Angebotsteilen.
 
 \paragraph{VALIDATEOFFERPARTS}
 
-Abschließend werden mit der \texttt{VALIDATEOFFERPARTS} Operation die Coupons für die in der mitgegebenen \textit{Offer Parts} validiert. Zum Schluss kommt eine eindeutige Antwort für jeden Angebotsteil zurück, ob der Coupon für diesen gültig ist.
+Abschließend werden mit der \texttt{VALIDATEOFFERPARTS}-Operation die Coupons für die mitgegebenen \textit{Offer Parts} validiert. Zum Schluss kommt eine eindeutige Antwort für jeden Angebotsteil zurück, ob der Coupon für diesen gültig ist.
 
 
 % --------------------------------------------
@@ -61,7 +61,7 @@ Abschließend werden mit der \texttt{VALIDATEOFFERPARTS} Operation die Coupons f
 \subsection{Unterschiede bei der Mobile-App}
 \label{subsec:prozess_mobile}
 
-Anders als in CASA oder im Webshop wird die \texttt{CREATEPREBOOKINGV2} Operation in der Mobile-App nicht ausgeführt. Stattdessen findet die Coupon-Validierung im Prozessablauf bereits direkt nach \texttt{CREATETRIPOFFERS} statt. Aus diesem Grund existieren zu dem Zeitpunkt noch keine \textit{Orders}, weshalb in dem \texttt{DiscounrOfferValidationController} die Angebotsteile nicht über \texttt{GETOFFERPARTSBYORDERID}, sondern über \texttt{GETOFFERPARTSBYOFFERID} ermittelt werden. Die anschließende Validierung über \texttt{VALIDATEOFFERPARTS} ist hingegen identsich mit dem Ablauf in CASA.
+Anders als in CASA oder im Webshop wird die \texttt{CREATEPREBOOKINGV2}-Operation in der Mobile-App nicht ausgeführt. Stattdessen findet die Coupon-Validierung im Prozessablauf bereits direkt nach \texttt{CREATETRIPOFFERS} statt. Aus diesem Grund existieren zu dem Zeitpunkt noch keine \textit{Orders}, weshalb in dem \texttt{DiscountOfferValidationController} die Angebotsteile nicht über \texttt{GETOFFERPARTSBYORDERID}, sondern über \texttt{GETOFFERPARTSBYOFFERID} ermittelt werden. Die anschließende Validierung über \texttt{VALIDATEOFFERPARTS} ist hingegen identisch mit dem Ablauf in CASA.
 
 
 % --------------------------------------------
@@ -75,33 +75,29 @@ Der \texttt{DiscountOfferValidationController} stellt die drei Funktionen \textt
 \subsubsection{GetOfferPartsByOrderId und GetOfferPartsByOfferId}
 \label{subsubsec:getofferparts}
 
-Die Funktion \texttt{GetOfferPartsByOrderId} erhält als Eingabe den Anfragekontext (\textit{Request Context}) sowie eine Order-ID. Mit diesen Werten wird die vollständige \textit{Order} bei \textit{Railkit} abgefragt. Aus der Antwort werden anschließend die \textit{Admissions} und \textit{Accommodations} herausgefiltert:
-
-In der \texttt{GetOfferPartsByOrderId} Funktion kommt neben dem Request Context, noch die Order-ID als Eingabe hinzu. Mithilfe der Order-ID wird die vollständige \textit{Order} bei \textit{Railkit} abgefragt. Anschließend werden die \textit{Admissions} und \textit{Accomodations} aus der Antwort gefiltert:
+In der \texttt{GetOfferPartsByOrderId}-Funktion kommt neben dem Request Context noch die Order-ID als Eingabe hinzu. Mithilfe der Order-ID wird die vollständige \textit{Order} bei \textit{Railkit} abgefragt. Anschließend werden die \textit{Admissions} und \textit{Accommodations} aus der Antwort gefiltert:
 
 \begin{itemize}
     \item \textbf{Admission:} die Fahrtberechtigung, also das eigentliche Zugticket.
-    \item \textbf{Accommodation:} die Platzreservierung beispielsweise.
+    \item \textbf{Accommodation:} beispielsweise die Platzreservierung.
 \end{itemize}
 
-Aus den IDs der \textit{Admissions} bzw. \textit{Accomodations} werden mit der zugehörigen Offer-Id \textit{OfferPartIds} im Format \texttt{<offerId>-<admissionId>} bzw. \texttt{<offerId>-<accommodationId>} erstellt. Zusätzlich extrahiert die Funktion den Preis der jeweiligen Angebotsteile. Diese Vorgehensweise ist möglich, da eine \textit{Order} unter dem Attribut \texttt{orderItems} die einzelnen \textit{Offers} der Bestellung enthält.
+Aus den IDs der \textit{Admissions} bzw. \textit{Accommodations} werden mit der zugehörigen Offer-ID \textit{OfferPartIds} im Format \texttt{<offerId>-<admissionId>} bzw. \texttt{<offerId>-<accommodationId>} erstellt. Zusätzlich extrahiert die Funktion den Preis der jeweiligen Angebotsteile. Diese Vorgehensweise ist möglich, da eine \textit{Order} unter dem Attribut \texttt{orderItems} die einzelnen \textit{Offers} der Bestellung enthält.
 
-\texttt{GetOfferPartsByOfferId} unterscheidet sich zu der \texttt{GetOfferPartsByOrderId}-Funktion im \textit{Railkit} Aufruf, der Anstelle der \textit{Orders} die \textit{Offers} abfragt. Die Angebotsteile werden ebenfalls aus der Antwort extrahiert und im gleichen Format zurückgegeben.
+\texttt{GetOfferPartsByOfferId} unterscheidet sich von der \texttt{GetOfferPartsByOrderId}-Funktion im \textit{Railkit}-Aufruf, der anstelle der \textit{Orders} die \textit{Offers} abfragt. Die Angebotsteile werden ebenfalls aus der Antwort extrahiert und im gleichen Format zurückgegeben.
 
 \subsubsection{ValidateOfferParts}
 \label{subsubsec:validateofferparts}
 
-Die Funktion \texttt{ValidateOfferParts} erhält neben dem Anfragekontext den Coupon-Code sowie die Liste der zu prüfenden Angebotsteil-IDs. Der Ablauf gliedert sich in drei Schritte:
-
-Um eine Liste von Angebotsteilen zu prüfen benötigt die \texttt{ValidateOfferParts}-Funktion nebem den Anfragekontext den Coupon-Code, sowie eine Liste der zu prüfenden \textit{OfferPartIds}. Der Ablauf dafür gliedert sich in drei Schritte:
+Um eine Liste von Angebotsteilen zu prüfen, benötigt die \texttt{ValidateOfferParts}-Funktion neben dem Anfragekontext den Coupon-Code sowie eine Liste der zu prüfenden \textit{OfferPartIds}. Der Ablauf dafür gliedert sich in drei Schritte:
 
 \begin{enumerate}
     \item \textbf{Laden der Coupon-Regeln:} Zunächst werden alle Einträge der \ac{ip}-Coupons aus der Stammdatenbank geladen und auf den erhaltenen Coupon gefiltert. Dabei beschreibt jeder Eintrag gewisse Einschränkungen, wie einen bestimmten Reisezeitraum oder ein bestimmtes Abfahrts- oder Ankunftsland.
-    \item \textbf{Laden der Angebotsdaten:} Aus den \textit{OfferPartIds} werden die Offer-Ids ermittelt. Für jede vorhandene Offer-Id werden zwei \textit{Railkit} Aufrufe (für die \textit{Offer} und Reiseroute) getätigt.
+    \item \textbf{Laden der Angebotsdaten:} Aus den \textit{OfferPartIds} werden die Offer-IDs ermittelt. Für jede vorhandene Offer-ID werden zwei \textit{Railkit}-Aufrufe (für die \textit{Offer} und Reiseroute) getätigt.
     \item \textbf{Validierung der Angebotsteile:} Aus den Antworten von \textit{Railkit} werden die validierungsrelevanten Werte extrahiert und gegen die Einschränkungen der Coupons geprüft.
 \end{enumerate}
 
-Zum Validieren des Coupons für die Angebotsteile werden folgende Werte benötigt: die Kennzeichnung als Anschlussbillet, die Reiseklassen, die Produktcodes, das Abfahrtsdatum, die Abfahrts- und Ankunftsbahnhöfe, die Zugtypen sowie die Anzahl der zugeordneten Reisenden. Alle weiteren Informationen aus den Railkit anfragen sind zur Valdierung von keiner weiteren Bedeutung.
+Zum Validieren des Coupons für die Angebotsteile werden folgende Werte benötigt: die Kennzeichnung als Anschlussbillet, die Reiseklassen, die Produktcodes, das Abfahrtsdatum, die Abfahrts- und Ankunftsbahnhöfe, die Zugtypen sowie die Anzahl der zugeordneten Reisenden. Alle weiteren Informationen aus den \textit{Railkit}-Anfragen sind für die Validierung nicht von Bedeutung.
 
 Als Ergebnis wird für jeden Angebotsteil zurückgegeben, ob der Coupon für ihn eingelöst werden kann. Ist dies nicht der Fall, wird zusätzlich ein Ablehnungsgrund (\textit{Rejection Code}) übermittelt.
 
@@ -130,6 +126,6 @@ Die Tabelle~\ref{tab:railkit_anfragen} fasst die Anfragen an \textit{Railkit} im
     \label{tab:railkit_anfragen}
 \end{table}
 
-In der Untersuchung zeigt sich, dass alle für die Coupon-Validierung benötigten Daten aus der Reiseroute und der \textit{Offer} bereits nach \texttt{CREATETRIPOFFERS} vorliegen. Die Anfragen aus \texttt{GETOFFERPARTSBYORDERID}, \texttt{GETOFFERPARTSBYOFFERID} und \texttt{VALIDATEOFFERPARTS} laden die gleichen Daten erneut und sind somit reduntant. 
+In der Untersuchung zeigt sich, dass alle für die Coupon-Validierung benötigten Daten aus der Reiseroute und der \textit{Offer} bereits nach \texttt{CREATETRIPOFFERS} vorliegen. Die Anfragen aus \texttt{GETOFFERPARTSBYORDERID}, \texttt{GETOFFERPARTSBYOFFERID} und \texttt{VALIDATEOFFERPARTS} laden die gleichen Daten erneut und sind somit redundant.
 
-Bei eine Validierung entstehen damit für ein einzelnes \textit{Offer} drei reduntante Anfragen an den externen dienstleister \textit{Railkit}. Diese gilt es mit der in Kapitel~\ref{sec:konzeption} beschriebenen Lösung zu vermeiden.
+Bei einer Validierung entstehen damit für ein einzelnes \textit{Offer} drei redundante Anfragen an den externen Dienstleister \textit{Railkit}. Diese gilt es mit der in Kapitel~\ref{sec:konzeption} beschriebenen Lösung zu vermeiden.
